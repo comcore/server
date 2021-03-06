@@ -8,5 +8,8 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/comcore/server.git"
+  },
+  "dependencies": {
+    "dequeue": "^1.0.5"
   }
 }
