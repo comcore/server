@@ -32,7 +32,9 @@ class Connection {
         }
       });
 
-      this.checkRequest();
+      this.handleRequests().catch(err => {
+        console.error(err);
+      });
     });
   }
 
@@ -72,29 +74,7 @@ class Connection {
     return this.userInfo && !this.pendingCode ? this.userInfo.id : null;
   }
 
-  checkRequest() {
-    if (this.isCancelled || this.isBusy || this.waitingRequests.length < 1) {
-      return;
-    }
-
-    const request = this.waitingRequests.shift();
-    this.isBusy = true;
-    this.runRequest(request)
-      .then(response =>
-        this.finishRequest('REPLY', response))
-      .catch(err => {
-        let message;
-        if (err instanceof RequestError) {
-          message = err.message;
-        } else {
-          console.error(err);
-          message = 'internal server error';
-        }
-        this.finishRequest('ERROR', { message });
-      });
-  }
-
-  notify(kind, data) {
+  send(kind, data) {
     if (this.isCancelled) {
       return;
     }
@@ -102,19 +82,38 @@ class Connection {
     this.socket.write(JSON.stringify({ kind, data }) + '\n');
   }
 
-  finishRequest(kind, data) {
-    this.notify(kind, data);
-    this.isBusy = false;
-    this.checkRequest();
-  }
-
   forceLogout() {
     this.logout();
-    this.notify("logout", {});
+    this.send("logout", {});
   }
 
   receiveMessage(message) {
-    this.notify("message", message);
+    this.send("message", message);
+  }
+
+  async handleRequests() {
+    if (this.isBusy) {
+      return;
+    }
+
+    this.isBusy = true;
+    while (!this.isCancelled && this.waitingRequests.length > 0) {
+      const request = this.waitingRequests.shift();
+      await this.runRequest(request)
+        .then(response =>
+          this.send('REPLY', response))
+        .catch(err => {
+          let message;
+          if (err instanceof RequestError) {
+            message = err.message;
+          } else {
+            console.error(err);
+            message = 'internal server error';
+          }
+          this.send('ERROR', { message });
+        });
+    }
+    this.isBusy = false;
   }
 
   async runRequest(request) {
