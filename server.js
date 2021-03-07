@@ -65,6 +65,13 @@ class Connection {
   }
 
   /*
+   * Close the connection to prepare for the server stopping.
+   */
+  stop() {
+    this.socket.end();
+  }
+
+  /*
    * Log the user out and cancel the handling of any new requests.
    */
   cancel() {
@@ -379,6 +386,14 @@ class Server {
   }
 
   /*
+   * Close the server and all connections.
+   */
+  stop() {
+    this.server.close();
+    this.connections.forEach(connection => connection.stop());
+  }
+
+  /*
    * Record that a user has logged into a connection.
    */
   loginConnection(id, connection) {
@@ -480,3 +495,8 @@ requests.initializeDatabase();
 
 // Initialize the server
 const server = new Server();
+
+// Add a handler for SIGINT so the server stops gracefully
+process.on('SIGINT', () => {
+  server.stop();
+});
