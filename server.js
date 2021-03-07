@@ -1,24 +1,50 @@
-const tls = require('tls');
-const fs = require('fs');
-
-const Dequeue = require('dequeue');
-
 const requests = require('./requests');
 const { RequestError } = requests;
 
+const tls = require('tls');
+const fs = require('fs');
+const Dequeue = require('dequeue');
+
+/*
+ * A verification code resets after 1 hour.
+ */
 const CODE_RESET_INTERVAL = 60 * 60 * 1000;
+
+/*
+ * A verification code can only be guessed wrong 3 times before becoming unusable.
+ */
 const CODE_MAX_FAILS = 3;
 
+/*
+ * Represents a server connection with a single client.
+ */
 class Connection {
   constructor(server, socket) {
+    // The parent server
     this.server = server;
+
+    // The socket for the connection
     this.socket = socket;
+
+    // Whether the connection is accepting requests
     this.isCancelled = false;
+
+    // Whether a request is currently being handled
     this.isBusy = false;
+
+    // A buffer for partially received requests that haven't been terminated with a newline
     this.lineBuffer = '';
+
+    // A queue of requests that are waiting to be fulfulled
     this.waitingRequests = new Dequeue();
+
+    // The user info { id, email } if the user is logged in
     this.userInfo = null;
+
+    // Whether there is a pending code that must be entered in order to be authenticated fully
     this.pendingCode = false;
+
+    // Whether the user can reset their password
     this.canReset = false;
 
     socket.on('data', data => {
@@ -38,18 +64,21 @@ class Connection {
     });
   }
 
+  /*
+   * Log the user out and cancel the handling of any new requests.
+   */
   cancel() {
+    this.logout();
     this.isCancelled = true;
   }
 
-  ensureNotLoggedIn() {
-    if (this.userInfo) {
-      this.logout();
-    }
-  }
-
+  /*
+   * Mark a user as logged in with a user ID and email address. If codeCanReset is null, there is no
+   * authentication code. Otherwise, it is a boolean representing whether the authentication code
+   * can be used for resetting a password.
+   */
   async login(id, email, codeCanReset) {
-    this.ensureNotLoggedIn();
+    this.logout();
 
     this.userInfo = { id, email };
 
@@ -63,6 +92,9 @@ class Connection {
     this.server.loginConnection(id, this);
   }
 
+  /*
+   * Log the user out if they are logged in.
+   */
   logout() {
     if (this.userInfo) {
       this.server.logoutConnection(this.userInfo.id, this);
@@ -70,10 +102,16 @@ class Connection {
     }
   }
 
+  /*
+   * Get the user's user ID if they are fully logged in (with no pending code).
+   */
   userID() {
     return this.userInfo && !this.pendingCode ? this.userInfo.id : null;
   }
 
+  /*
+   * Send a message to the client.
+   */
   send(kind, data) {
     if (this.isCancelled) {
       return;
@@ -82,15 +120,24 @@ class Connection {
     this.socket.write(JSON.stringify({ kind, data }) + '\n');
   }
 
+  /*
+   * Send a forced logout message to the client.
+   */
   forceLogout() {
     this.logout();
     this.send("logout", {});
   }
 
+  /*
+   * Send a received message from a chat to the client.
+   */
   receiveMessage(message) {
     this.send("message", message);
   }
 
+  /*
+   * Handle any pending requests if not currently handling a request.
+   */
   async handleRequests() {
     if (this.isBusy) {
       return;
@@ -116,6 +163,9 @@ class Connection {
     this.isBusy = false;
   }
 
+  /*
+   * Handle a request received from the client.
+   */
   async runRequest(request) {
     const { kind, data } = JSON.parse(request);
     switch (kind) {
@@ -123,8 +173,9 @@ class Connection {
         this.logout();
         return {};
       }
+
       case 'login': {
-        this.ensureNotLoggedIn();
+        this.logout();
 
         const { email, pass } = data;
         const account = await requests.lookupAccount(email);
@@ -139,8 +190,9 @@ class Connection {
         await this.login(account.id, email, null);
         return { status: 'SUCCESS' };
       }
+
       case 'createAccount': {
-        this.ensureNotLoggedIn();
+        this.logout();
 
         const { name, email, pass } = data;
         const id = await requests.createAccount(name, email, pass);
@@ -151,8 +203,9 @@ class Connection {
         await this.login(id, email, false);
         return { created: true };
       }
+
       case 'requestReset': {
-        this.ensureNotLoggedIn();
+        this.logout();
 
         const { email } = data;
         const account = await requests.lookupAccount(email);
@@ -163,6 +216,7 @@ class Connection {
         await this.login(account.id, email, true);
         return { sent: true };
       }
+
       case 'enterCode': {
         if (!this.userInfo) {
           throw new RequestError('enterCode called without logging in');
@@ -178,6 +232,7 @@ class Connection {
         this.pendingCode = false;
         return { correct: true };
       }
+
       default:
         const user = this.userID();
         if (!user) {
@@ -188,6 +243,9 @@ class Connection {
     }
   }
 
+  /*
+   * Handle a request received from the client that requires the user to be logged in.
+   */
   async runAuthorizedRequest(user, kind, data) {
     switch (kind) {
       case 'finishReset': {
@@ -200,40 +258,48 @@ class Connection {
         this.server.forceLogout(user, this);
         return { reset: true };
       }
+
       case 'createGroup': {
         const { name } = data;
         const id = await requests.createGroup(user, name);
         return { id };
       }
+
       case 'getGroups': {
         const groups = await requests.getGroups(user);
         return { groups };
       }
+
       case 'createChat': {
         const { group, name } = data;
         const id = await requests.createChat(user, group, name);
         return { id };
       }
+
       case 'getUsers': {
         const { group } = data;
         const users = await requests.getUsers(user, group);
         return { users };
       }
+
       case 'getChats': {
         const { group } = data;
         const chats = await requests.getChats(user, group);
         return { chats };
       }
+
       case 'setRole': {
         const { group, target, role } = data;
         await requests.setRole(user, group, target, role);
         return {};
       }
+
       case 'setMuted': {
         const { group, target, muted } = data;
         await requests.setMuted(user, group, target, muted);
         return {};
       }
+
       case 'sendMessage': {
         const { group, chat, contents } = data;
         const timestamp = Date.now();
@@ -254,39 +320,50 @@ class Connection {
         });
         return {};
       }
+
       case 'getMessages': {
         let { group, chat, after, before } = data;
 
+        // All messages are higher than 0
         if (after < 1) {
-          // All messages are higher than 1
           after = 0;
         }
 
+        // All messages are lower than 2^52
         if (before < 1) {
-          // All messages are lower than 2^52
           before = 0x20000000000000;
         }
 
         const messages = await requests.getMessages(user, group, chat, after, before);
         return { messages };
       }
+
       default:
         throw new RequestError('unknown message kind: ' + kind);
     }
   }
 }
 
+/*
+ * Represents a server that is accepting clients.
+ */
 class Server {
   constructor() {
+    // A set of connections that are currently open
+    this.connections = new Set();
+
+    // A map of user IDs to sets of current connections
+    this.loggedIn = new Map();
+
+    // A map of user IDs to pending codes { code, forReset, expireTime, fails }
+    this.pendingCodes = new Map();
+
     const options = {
       key: fs.readFileSync('key.pem'),
       cert: fs.readFileSync('cert.pem'),
     };
 
-    this.connections = new Set();
-    this.loggedIn = new Map();
-    this.pendingCodes = new Map();
-
+    // The server which is currently listening for connections
     this.server = tls.createServer(options, socket => {
       socket.setEncoding('utf8');
       const connection = new Connection(this, socket);
@@ -301,6 +378,9 @@ class Server {
     this.server.listen(443);
   }
 
+  /*
+   * Record that a user has logged into a connection.
+   */
   loginConnection(id, connection) {
     const connections = this.loggedIn.get(id);
     if (connections) {
@@ -310,6 +390,9 @@ class Server {
     }
   }
 
+  /*
+   * Record that a user has logged out from a connection.
+   */
   logoutConnection(id, connection) {
     const connections = this.loggedIn.get(id);
     if (connections) {
@@ -320,6 +403,9 @@ class Server {
     }
   }
 
+  /*
+   * Generate a code if there isn't already a recent pending code that can be used.
+   */
   async generateCode(id, email, forReset) {
     const codeEntry = this.pendingCodes.get(id);
     const time = Date.now();
@@ -330,10 +416,12 @@ class Server {
     const code = await requests.sendCode(email, forReset);
     const expireTime = time + CODE_RESET_INTERVAL;
     this.pendingCodes.set(id, { code, forReset, expireTime, fails: 0 });
-
-    return;
   }
 
+  /*
+   * Verify that a code is valid for a user. Returns null on invalid code, otherwise returns true
+   * if the code can be used for resetting a password or false otherwise.
+   */
   verifyCode(id, code) {
     const codeEntry = this.pendingCodes.get(id);
     if (!codeEntry) {
@@ -356,6 +444,9 @@ class Server {
     return null;
   }
 
+  /*
+   * Force all connections for a user to be logged out except for the one that requested it.
+   */
   forceLogout(id, exceptFor) {
     const connections = this.loggedIn.get(id);
     if (!connections) {
@@ -369,6 +460,9 @@ class Server {
     });
   }
 
+  /*
+   * Forward a message to all connections of a user.
+   */
   forwardMessage(id, message) {
     const connections = this.loggedIn.get(id);
     if (!connections) {
@@ -381,5 +475,8 @@ class Server {
   }
 }
 
+// Initialize the database
 requests.initializeDatabase();
-new Server();
+
+// Initialize the server
+const server = new Server();
