@@ -381,4 +381,5 @@ class Server {
   }
 }
 
+requests.initializeDatabase();
 new Server();

@@ -17,6 +17,15 @@ async function sendCode(email, forReset) {
   throw new RequestError('unimplemented: sendCode');
 }
 
+// === DATABASE FUNCTIONS ===
+
+/*
+ * Function that is called when the server is starting to initialize the database.
+ */
+function initializeDatabase() {
+  // TODO put any initialization code here and it will be called when the server is starting
+}
+
 /*
  * Look up an account by email. If the account doesn't exist, return null. Otherwise return:
  *
@@ -169,6 +178,7 @@ async function getMessages(user, group, chat, after, before) {
 module.exports = {
   RequestError,
   sendCode,
+  initializeDatabase,
   lookupAccount,
   createAccount,
   resetPassword,
