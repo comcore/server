@@ -4,6 +4,18 @@ const { RequestError } = requests;
 const crypto = require('crypto');
 
 /*
+ * Represents a type of confirmation code.
+ */
+const ConfirmKind = { newAccount: 1, twoFactor: 2, resetPassword: 3 };
+
+/*
+ * Generate a code and send it to the requested email address.
+ */
+async function sendCode(email, kind) {
+  throw new RequestError('unimplemented: sendCode');
+}
+
+/*
  * Details for how the hashed and salted password is stored in memory.
  */
 const algorithm = 'sha512';
@@ -46,15 +58,9 @@ function checkPassword(pass, fullHash) {
   return actualHash === expectedHash;
 }
 
-/*
- * Generate a code and send it to the requested email address.
- */
-async function sendCode(email, forReset) {
-  throw new RequestError('unimplemented: sendCode');
-}
-
 module.exports = {
+  ConfirmKind,
+  sendCode,
   hashPassword,
   checkPassword,
-  sendCode,
 };
