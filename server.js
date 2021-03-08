@@ -1,6 +1,8 @@
 const requests = require('./requests');
 const { RequestError } = requests;
 
+const security = require('./security');
+
 const tls = require('tls');
 const fs = require('fs');
 const Dequeue = require('dequeue');
@@ -132,14 +134,14 @@ class Connection {
    */
   forceLogout() {
     this.logout();
-    this.send("logout", {});
+    this.send('logout', {});
   }
 
   /*
    * Send a received message from a chat to the client.
    */
   receiveMessage(message) {
-    this.send("message", message);
+    this.send('message', message);
   }
 
   /*
@@ -190,7 +192,7 @@ class Connection {
           return { status: 'DOES_NOT_EXIST' };
         }
 
-        if (pass !== account.pass) {
+        if (!security.checkPassword(pass, account.hash)) {
           return { status: 'INVALID_PASSWORD' };
         }
 
@@ -202,7 +204,8 @@ class Connection {
         this.logout();
 
         const { name, email, pass } = data;
-        const id = await requests.createAccount(name, email, pass);
+        const hash = security.hashPassword(pass);
+        const id = await requests.createAccount(name, email, hash);
         if (!id) {
           return { created: false };
         }
@@ -261,7 +264,8 @@ class Connection {
           return { reset: false };
         }
 
-        await requests.resetPassword(user, pass);
+        const hash = security.hashPassword(pass);
+        await requests.resetPassword(user, hash);
         this.server.forceLogout(user, this);
         return { reset: true };
       }
@@ -428,7 +432,7 @@ class Server {
       return;
     }
 
-    const code = await requests.sendCode(email, forReset);
+    const code = await security.sendCode(email, forReset);
     const expireTime = time + CODE_RESET_INTERVAL;
     this.pendingCodes.set(id, { code, forReset, expireTime, fails: 0 });
   }

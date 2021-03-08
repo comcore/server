@@ -11,15 +11,6 @@ class RequestError extends Error {
 }
 
 /*
- * Generate a code and send it to the requested email address.
- */
-async function sendCode(email, forReset) {
-  throw new RequestError('unimplemented: sendCode');
-}
-
-// === DATABASE FUNCTIONS ===
-
-/*
  * Function that is called when the server is starting to initialize the database.
  */
 function initializeDatabase() {
@@ -32,7 +23,7 @@ function initializeDatabase() {
  * {
  *   id:   the ID of the user,
  *   name: the name of the user,
- *   pass: the stored hashed password of the user,
+ *   hash: the stored hashed password of the user,
  * }
  */
 async function lookupAccount(email) {
@@ -44,14 +35,14 @@ async function lookupAccount(email) {
  * with the given email address already exists, return null. Otherwise return the user ID of the
  * newly created user.
  */
-async function createAccount(name, email, pass) {
+async function createAccount(name, email, hash) {
   throw new RequestError('unimplemented: createAccount');
 }
 
 /*
  * Reset the password of an account specified by a user ID to have the provided hashed password.
  */
-async function resetPassword(user, pass) {
+async function resetPassword(user, hash) {
   throw new RequestError('unimplemented: resetPassword');
 }
 
@@ -177,7 +168,6 @@ async function getMessages(user, group, chat, after, before) {
 
 module.exports = {
   RequestError,
-  sendCode,
   initializeDatabase,
   lookupAccount,
   createAccount,
