@@ -204,12 +204,13 @@ class Connection {
         this.logout();
 
         const { name, email, pass } = data;
-        const hash = security.hashPassword(pass);
+        const hash = await security.hashPassword(pass);
         const id = await requests.createAccount(name, email, hash);
         if (!id) {
           return { created: false };
         }
 
+        // TODO make sure that login code requirement is persistent until confirmed
         await this.login(id, email, false);
         return { created: true };
       }
@@ -264,7 +265,7 @@ class Connection {
           return { reset: false };
         }
 
-        const hash = security.hashPassword(pass);
+        const hash = await security.hashPassword(pass);
         await requests.resetPassword(user, hash);
         this.server.forceLogout(user, this);
         return { reset: true };
