@@ -76,6 +76,10 @@ class StateLoggedOut {
       case 'createAccount': {
         const { name, email, pass } = data;
 
+        if (!name || !email) {
+          throw new RequestError('name and email address cannot be empty');
+        }
+
         // Check if the account already exists
         if (await requests.lookupAccount(email)) {
           return { created: false };
@@ -235,6 +239,11 @@ class StateLoggedIn {
     switch (kind) {
       case 'createGroup': {
         const { name } = data;
+
+        if (!name) {
+          throw new RequestError('group name cannot be empty');
+        }
+
         const id = await requests.createGroup(this.user, name);
         return { id };
       }
@@ -246,6 +255,11 @@ class StateLoggedIn {
 
       case 'createChat': {
         const { group, name } = data;
+
+        if (!name) {
+          throw new RequestError('chat name cannot be empty');
+        }
+
         const id = await requests.createChat(this.user, group, name);
         return { id };
       }
@@ -262,24 +276,92 @@ class StateLoggedIn {
         return { chats };
       }
 
+      case 'sendInvite': {
+        const { group, email } = data;
+
+        if (!email) {
+          throw new RequestError('email address cannot be empty');
+        }
+
+        // Make sure that the email corresponds to a user
+        const target = await requests.lookupAccount(email);
+        if (!target) {
+          return { sent: false };
+        }
+
+        // Get the names of the inviter and the group
+        const inviter = await requests.getUserName(this.user);
+        const name = await requests.getGroupName(group);
+
+        // Record the invite for the user in the group
+        await requests.sendInvite(this.user, group, target.id);
+
+        // Also notify the target user that they received an invitation
+        server.forward(target.id, 'invite', { id: group, name, inviter });
+        return { sent: true };
+      }
+
+      case 'getInvites': {
+        const invites = await requests.getInvites(this.user);
+        return { invites };
+      }
+
+      case 'replyToInvite': {
+        const { group, accept } = data;
+        await requests.replyToInvite(this.user, group, accept);
+        return {};
+      }
+
+      case 'leaveGroup': {
+        const { group } = data;
+        await requests.leaveGroup(this.user, group);
+        return {};
+      }
+
+      case 'kick': {
+        const { group, target } = data;
+        await requests.kick(this.user, group, target);
+
+        // Also notify the target user that they were kicked
+        server.forward(target, 'kicked', { group });
+
+        return {};
+      }
+
       case 'setRole': {
         const { group, target, role } = data;
         await requests.setRole(this.user, group, target, role);
+
+        // Also notify the target user that their role has changed
+        server.forward(target, 'roleChanged', { group, role });
+
         return {};
       }
 
       case 'setMuted': {
         const { group, target, muted } = data;
         await requests.setMuted(this.user, group, target, muted);
+
+        // Also notify the target user that their muted status has changed
+        server.forward(target, 'mutedChanged', { group, muted });
         return {};
       }
 
       case 'sendMessage': {
         const { group, chat, contents } = data;
 
+        if (!contents) {
+          throw new RequestError('message contents cannot be empty');
+        }
+
+        // Get the name of the current user
+        const name = await requests.getUserName(this.user);
+
+        // Get a list of all other users in a group to notify
+        const chatUsers = await requests.getUsers(this.user, group);
+
         // Store the sent message in the database
         const timestamp = Date.now();
-        const chatUsers = await requests.getUsers(this.user, group);
         const id = await requests.sendMessage(this.user, group, chat, timestamp, contents);
 
         // Record the information about the message
@@ -287,15 +369,15 @@ class StateLoggedIn {
           group,
           chat,
           id,
-          sender: this.user,
+          sender: { id: this.user, name },
           timestamp,
           contents,
         };
 
-        // For each user in the chat, tell the server to forward the message to them
+        // Also notify every user in the group of the new message, except for the one that sent it
         chatUsers.forEach(chatUser => {
           if (chatUser.id !== this.user) {
-            server.forwardMessage(chatUser.id, message);
+            server.forward(chatUser.id, 'message', message);
           }
         });
 
@@ -310,7 +392,7 @@ class StateLoggedIn {
           after = 0;
         }
 
-        // All messages are lower than 2^52
+        // All messages are lower than 2^53
         if (before < 1) {
           before = 0x20000000000000;
         }
@@ -384,9 +466,9 @@ class Connection {
    * Transition to a new login state.
    */
   setState(state) {
-    state.start?.();
-    this.state = state;
     this.state.stop?.();
+    this.state = state;
+    this.state.start?.();
   }
 
   /*
@@ -417,13 +499,6 @@ class Connection {
   forceLogout() {
     this.logout();
     this.send('logout', {});
-  }
-
-  /*
-   * Send a received message from a chat to the client.
-   */
-  receiveMessage(message) {
-    this.send('message', message);
   }
 
   /*
@@ -689,16 +764,16 @@ class Server {
   }
 
   /*
-   * Forward a message to all connections of a user.
+   * Forward a notification to all connections of a user.
    */
-  forwardMessage(id, message) {
+  forward(id, kind, data) {
     const connections = this.loggedIn.get(id);
     if (!connections) {
       return;
     }
 
     connections.forEach(connection => {
-      connection.receiveMessage(message);
+      connection.send(kind, data);
     });
   }
 }
@@ -707,7 +782,10 @@ class Server {
 const server = new Server();
 
 // Initialize the database
-requests.initializeDatabase();
+// TODO if the initializeDatabase() function is moved to just be executed when the module loads,
+// then this call can be removed. This might be simpler since the database connection variable must
+// be shared between calls anyway.
+requests.initializeDatabase?.();
 
 // Add a handler for SIGINT so the server stops gracefully
 process.on('SIGINT', () => {
