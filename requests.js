@@ -1,3 +1,7 @@
+var MongoClient = require('mongodb').MongoClient;
+var ObjectId = require('mongodb').ObjectId;
+var url = "mongodb://localhost:29356";
+
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
  * should have been checked by the client beforehand). The server will forward the error message to
@@ -13,9 +17,13 @@ class RequestError extends Error {
 /*
  * Function that is called when the server is starting to initialize the database.
  */
-function initializeDatabase() {
-  // TODO put any initialization code here and it will be called when the server is starting
-}
+ function initializeDatabase() {
+   MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true}, function(err, db) {
+     if (err) throw err;
+     console.log("Database connection successful!");
+     db.close();
+   });
+ }
 
 /*
  * Look up an account by email. If the account doesn't exist, return null. Otherwise return:
@@ -26,24 +34,81 @@ function initializeDatabase() {
  *   hash: the stored hashed password of the user,
  * }
  */
-async function lookupAccount(email) {
-  throw new RequestError('unimplemented: lookupAccount');
-}
+ async function lookupAccount(email) {
+   try {
+     db = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
+     const result = await db.db("ComcoreProd").collection("Users").findOne({emailAdr: email});
+     db.close();
+     if (result == null) {
+       return null;
+     } else {
+     return {
+          id: result._id.toHexString(),
+          name: result.name,
+          hash: result.pass,
+        };
+      }
+   } catch(err) {
+     throw err;
+   }
+ }
+
+//testLookupAccount("neel.lingam@gmail.com")
+function testLookupAccount(email) {
+  lookupAccount(email)
+   .then(result => console.log(result))
+   .catch(err => console.log(err))
+   lookupAccount("------")
+    .then(result => console.log(result))
+    .catch(err => console.log(err))
+ }
 
 /*
  * Create a new account with an associated name, email address, and hashed password. If an account
  * with the given email address already exists, return null. Otherwise return the user ID of the
  * newly created user.
  */
-async function createAccount(name, email, hash) {
-  throw new RequestError('unimplemented: createAccount');
+ async function createAccount(name, email, hash) {
+   try {
+     var newObj = {emailAdr: email, name: name, pass: hash};
+     const alreadyAcct = await lookupAccount(email);
+     if(alreadyAcct !== null) {
+       return null;
+     } else {
+       db = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
+       const result = await db.db("ComcoreProd").collection("Users").insertOne(newObj);
+       db.close();
+       return result.insertedId.toHexString();
+     }
+   } catch(err) {
+     throw err;
+   }
+ }
+
+//testCreateAccount("Test2 Person", "test2@gmail.com", "newPassword")
+async function testCreateAccount(name, email, hash) {
+ const result = await createAccount(name, email, hash);
+    console.log(result)
 }
 
 /*
  * Reset the password of an account specified by a user ID to have the provided hashed password.
  */
 async function resetPassword(user, hash) {
-  throw new RequestError('unimplemented: resetPassword');
+  try {
+    var query = { _id: ObjectId(user) };
+    var newval = { $set: {pass: hash} };
+      db = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
+      await db.db("ComcoreProd").collection("Users").updateOne(query, newval);
+      db.close();
+  } catch(err) {
+    throw err;
+  }
+}
+
+//testResetPassword("6048eaef45189a18f94be8e7", "PasswordNEW")
+async function testResetPassword(user, hash) {
+ await resetPassword(user, hash);
 }
 
 /*
