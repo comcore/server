@@ -6,7 +6,7 @@ const { ConfirmKind } = security;
 
 const tls = require('tls');
 const fs = require('fs');
-const Dequeue = require('dequeue');
+const Denque = require('denque');
 
 /*
  * A verification code resets after 1 hour.
@@ -428,7 +428,7 @@ class Connection {
     this.lineBuffer = '';
 
     // A queue of requests that are waiting to be fulfulled
-    this.waitingRequests = new Dequeue();
+    this.waitingRequests = new Denque();
 
     socket.on('data', data => {
       this.lineBuffer += data;
@@ -778,19 +778,39 @@ class Server {
   }
 }
 
-// Create a server object in case it is needed during initialization
+/*
+ * The singleton instance of the Server class which is used for managing connections.
+ */
 const server = new Server();
 
-// Initialize the database
-// TODO if the initializeDatabase() function is moved to just be executed when the module loads,
-// then this call can be removed. This might be simpler since the database connection variable must
-// be shared between calls anyway.
-requests.initializeDatabase?.();
+/*
+ * Initialize the database asynchronously before starting the server.
+ */
+async function init() {
+  try {
+    await requests.initializeDatabase();
+    server.start();
+  } catch (err) {
+    console.error(err);
+    await stop();
+  }
+}
 
-// Add a handler for SIGINT so the server stops gracefully
-process.on('SIGINT', () => {
-  server.stop();
-});
+/*
+ * Stop the server before asynchronously closing the database.
+ */
+async function stop() {
+  try {
+    server.stop();
+    await requests.closeDatabase();
+  } catch (err) {
+    console.error(err);
+  }
+}
 
-// Start the server
-server.start();
+
+// Add a handler for SIGINT to stop everything gracefully when exiting
+process.on('SIGINT', stop);
+
+// Start running everything
+init();

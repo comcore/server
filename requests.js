@@ -1,8 +1,10 @@
 var MongoClient = require('mongodb').MongoClient;
 var ObjectId = require('mongodb').ObjectId;
-var url = "mongodb://localhost:29342";
+var Server = require('mongodb').Server;
+
+// const url = "mongodb://localhost:29342";
 //Server URL
-//var url = "mongodb://localhost:27017";
+const url = "mongodb://localhost:27017";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -17,15 +19,39 @@ class RequestError extends Error {
 }
 
 /*
+ * Connections to the database which are initialized by initializeDatabase().
+ */
+let mongoClient;
+let db;
+
+/*
  * Function that is called when the server is starting to initialize the database.
  */
- function initializeDatabase() {
-   MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true}, function(err, db) {
-     if (err) throw err;
-     console.log("Database connection successful!");
-     db.close();
-   });
- }
+async function initializeDatabase() {
+  // Create a MongoClient object
+  mongoClient = new MongoClient(url, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  });
+
+  // Connect to the database
+  mongoClient.connect();
+
+  // Retrieve the production database object
+  db = mongoClient.db('ComcoreProd');
+}
+
+/*
+ * Function that is called when the server is stopping to close the database.
+ */
+async function closeDatabase() {
+  db = undefined;
+
+  if (mongoClient) {
+    mongoClient.close();
+    mongoClient = undefined;
+  }
+}
 
 /*
  * Look up an account by email. If the account doesn't exist, return null. Otherwise return:
@@ -36,61 +62,49 @@ class RequestError extends Error {
  *   hash: the stored hashed password of the user,
  * }
  */
- async function lookupAccount(email) {
-   try {
-     db = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
-     const result = await db.db("ComcoreProd").collection("Users").findOne({emailAdr: email});
-     db.close();
-     if (result == null) {
-       return null;
-     } else {
-     return {
-          id: result._id.toHexString(),
-          name: result.name,
-          hash: result.pass,
-        };
-      }
-   } catch(err) {
-     throw err;
-   }
- }
+async function lookupAccount(email) {
+  const result = await db.collection("Users").findOne({emailAdr: email});
+  if (result === null) {
+    return null;
+  }
+
+  return {
+    id: result._id.toHexString(),
+    name: result.name,
+    hash: result.pass,
+  };
+}
 
 //testLookupAccount("neel.lingam@gmail.com")
 function testLookupAccount(email) {
   lookupAccount(email)
-   .then(result => console.log(result))
-   .catch(err => console.log(err))
-   lookupAccount("------")
     .then(result => console.log(result))
     .catch(err => console.log(err))
- }
+  lookupAccount("------")
+    .then(result => console.log(result))
+    .catch(err => console.log(err))
+}
 
 /*
  * Create a new account with an associated name, email address, and hashed password. If an account
  * with the given email address already exists, return null. Otherwise return the user ID of the
  * newly created user.
  */
- async function createAccount(name, email, hash) {
-   try {
-     var newObj = {emailAdr: email, name: name, pass: hash};
-     const alreadyAcct = await lookupAccount(email);
-     if(alreadyAcct !== null) {
-       return null;
-     } else {
-       db = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
-       const result = await db.db("ComcoreProd").collection("Users").insertOne(newObj);
-       db.close();
-       return result.insertedId.toHexString();
-     }
-   } catch(err) {
-     throw err;
-   }
- }
+async function createAccount(name, email, hash) {
+  var alreadyAcct = await lookupAccount(email);
+  if (alreadyAcct !== null) {
+    return null;
+  }
+
+  var newObj = {emailAdr: email, name: name, pass: hash};
+  const result = await db.collection("Users").insertOne(newObj);
+  return result.insertedId.toHexString();
+}
 
 //testCreateAccount("Test2 Person", "test2@gmail.com", "newPassword")
 async function testCreateAccount(name, email, hash) {
- const result = await createAccount(name, email, hash);
-    console.log(result)
+  const result = await createAccount(name, email, hash);
+  console.log(result);
 }
 
 /*
@@ -104,20 +118,14 @@ async function getUserName(user) {
  * Reset the password of an account specified by a user ID to have the provided hashed password.
  */
 async function resetPassword(user, hash) {
-  try {
-    var query = { _id: ObjectId(user) };
-    var newval = { $set: {pass: hash} };
-      db = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
-      await db.db("ComcoreProd").collection("Users").updateOne(query, newval);
-      db.close();
-  } catch(err) {
-    throw err;
-  }
+  var query = { _id: ObjectId(user) };
+  var newval = { $set: {pass: hash} };
+  await db.collection("Users").updateOne(query, newval);
 }
 
 //testResetPassword("6048eaef45189a18f94be8e7", "PasswordNEW")
 async function testResetPassword(user, hash) {
- await resetPassword(user, hash);
+  await resetPassword(user, hash);
 }
 
 /*
@@ -125,23 +133,15 @@ async function testResetPassword(user, hash) {
  * the newly created group.
  */
 async function createGroup(user, name) {
-  try {
-    var newGrpUsr = {user: ObjectId(user), role: "Owner", muted: false};
-    var newGrp = {name: name, grpUsers: [newGrpUsr]};
-      db = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
-      const result = await db.db("ComcoreProd").collection("Groups").insertOne(newGrp);
-      db.close();
+  var newGrpUsr = {user: ObjectId(user), role: "owner", muted: false};
+  var newGrp = {name: name, grpUsers: [newGrpUsr]};
+  const result = await db.collection("Groups").insertOne(newGrp);
 
-      var query = { _id: ObjectId(user) };
-      var newval = { $push: {groups: ObjectId(result.insertedId.toHexString())} };
-      db2 = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
-      await db2.db("ComcoreProd").collection("Users").updateOne(query, newval);
-      db2.close();
+  var query = { _id: ObjectId(user) };
+  var newval = { $push: {groups: ObjectId(result.insertedId.toHexString())} };
+  await db.collection("Users").updateOne(query, newval);
 
-      return result.insertedId.toHexString();
-  } catch(err) {
-    throw err;
-  }
+  return result.insertedId.toHexString();
 }
 
 //testCreateGroup("6048eaef45189a18f94be8e7", "test1 Group")
@@ -170,29 +170,24 @@ async function getGroupName(group) {
 async function getGroups(user) {
   throw new RequestError('unimplemented: getGroups');
 }
-// async function getGroups(user) {
-//   try {
-//     db = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
-//     const result = await db.db("ComcoreProd").collection("Groups").find({"grpUsers.user": {$eq: ObjectId(user)}}, { projection: { _id: 0, name: 0} });
-//     db.close();
-//     console.log(result)
-//     // return {
-//     //      id: result._id.toHexString(),
-//     //      name: result.name,
-//     //      role: result.role,
-//     //      muted: result.muted,
-//     //    };
-//   } catch(err) {
-//     throw err;
-//   }
-// }
-//
-// testGetGroups("6047c3b2b8a960554f0ece18")
-// function testGetGroups(user) {
-//  getGroups(user)
-//   .then(result => console.log(result))
-//   .catch(err => console.log(err))
-// }
+//async function getGroups(user) {
+//  const result = await db.collection("Groups")
+//    .find({"grpUsers.user": {$eq: ObjectId(user)}}, { projection: { _id: 0, name: 0} });
+//  console.log(result)
+//  //return {
+//  //     id: result._id.toHexString(),
+//  //     name: result.name,
+//  //     role: result.role,
+//  //     muted: result.muted,
+//  //   };
+//}
+
+//testGetGroups("6047c3b2b8a960554f0ece18")
+//function testGetGroups(user) {
+// getGroups(user)
+//  .then(result => console.log(result))
+//  .catch(err => console.log(err))
+//}
 
 /*
  * Create a new chat in the given group ID with the given name. Make sure that the user ID is part
@@ -343,6 +338,7 @@ async function getMessages(user, group, chat, after, before) {
 module.exports = {
   RequestError,
   initializeDatabase,
+  closeDatabase,
   lookupAccount,
   createAccount,
   getUserName,

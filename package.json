@@ -10,7 +10,8 @@
     "url": "git+https://github.com/comcore/server.git"
   },
   "dependencies": {
-    "dequeue": "^1.0.5",
+    "denque": "^1.5.0",
+    "mongodb": "^3.6.4",
     "nodemailer": "^6.5.0"
   }
 }
