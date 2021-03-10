@@ -6,22 +6,12 @@ const { ConfirmKind } = security;
 
 const tls = require('tls');
 const fs = require('fs');
-const Dequeue = require('dequeue');
-
-/*
- * A verification code resets after 1 hour.
- */
-const CODE_RESET_INTERVAL = 60 * 60 * 1000;
-
-/*
- * A verification code can only be guessed wrong 3 times before becoming unusable.
- */
-const CODE_MAX_FAILS = 3;
+const Denque = require('denque');
 
 /*
  * Messages which will automatically log out the user regardless of the current state.
  */
-const LOGOUT_MESSAGES = ['login', 'createAccount', 'requestReset', 'logout'];
+const logoutMessages = ['login', 'createAccount', 'requestReset', 'logout'];
 
 /*
  * Represents an error for an unauthorized access (invalid login state).
@@ -46,8 +36,12 @@ class StateLoggedOut {
       case 'login': {
         const { email, pass } = data;
 
+        if (!email) {
+          throw new RequestError('email address cannot be empty');
+        }
+
         // Check if the account is in the process of being confirmed still
-        if (await server.continueCreation(email, pass))  {
+        if (await server.codeManager.continueCreation(email, pass))  {
           // Transition to the confirm email state
           this.connection.setState(
             new StateConfirmEmail(this.connection, email, ConfirmKind.newAccount));
@@ -86,7 +80,7 @@ class StateLoggedOut {
         }
 
         // Start account creation by sending an email and recording the temporary account
-        if (await server.startCreation(name, email, pass)) {
+        if (await server.codeManager.startCreation(name, email, pass)) {
           return { created: false };
         }
 
@@ -100,6 +94,10 @@ class StateLoggedOut {
       case 'requestReset': {
         const { email } = data;
 
+        if (!email) {
+          throw new RequestError('email address cannot be empty');
+        }
+
         // Check if the account exists
         const account = await requests.lookupAccount(email);
         if (!account) {
@@ -107,7 +105,7 @@ class StateLoggedOut {
         }
 
         // Send a password reset confirmation email
-        await server.sendConfirmation(email, ConfirmKind.resetPassword, account.id);
+        await server.codeManager.sendConfirmation(email, ConfirmKind.resetPassword, account.id);
 
         // Transition to the confirm email state
         this.connection.setState(
@@ -141,7 +139,7 @@ class StateConfirmEmail {
         const { code } = data;
 
         // Check if the code and ConfirmKind match an existing code
-        const codeData = server.checkCode(this.email, this.confirmKind, code);
+        const codeData = server.codeManager.checkCode(this.email, this.confirmKind, code);
         if (codeData === null) {
           return { correct: false };
         }
@@ -150,7 +148,7 @@ class StateConfirmEmail {
         switch (this.confirmKind) {
           case ConfirmKind.newAccount:
             // Finish account creation and return the user ID
-            const id = await server.finishCreation(this.email);
+            const id = await server.codeManager.finishCreation(this.email);
 
             // Transition to the logged in state
             this.connection.setState(
@@ -428,7 +426,7 @@ class Connection {
     this.lineBuffer = '';
 
     // A queue of requests that are waiting to be fulfulled
-    this.waitingRequests = new Dequeue();
+    this.waitingRequests = new Denque();
 
     socket.on('data', data => {
       this.lineBuffer += data;
@@ -545,7 +543,7 @@ class Connection {
     const { kind, data } = JSON.parse(request);
 
     // Log out if the message required the user to be logged out first
-    if (LOGOUT_MESSAGES.includes(kind)) {
+    if (logoutMessages.includes(kind)) {
       this.logout();
     }
 
@@ -568,11 +566,8 @@ class Server {
     // A map of user IDs to sets of current connections
     this.loggedIn = new Map();
 
-    // A map of email addresses to pending codes { code, kind, data, expireTime, fails }
-    this.pendingCodes = new Map();
-
-    // A map of email addresses to new accounts { name, hash }
-    this.newAccounts = new Map();
+    // The code manager to keep track of pending codes and accounts
+    this.codeManager = new security.CodeManager();
   }
 
   /*
@@ -634,116 +629,6 @@ class Server {
       if (connections.size === 0) {
         this.loggedIn.delete(id);
       }
-    }
-  }
-
-  /*
-   * Check if a confirmation code is still valid and is of the correct kind.
-   */
-  static isValidCode(codeEntry, kind) {
-    return codeEntry && codeEntry.kind === kind && Date.now() < codeEntry.expireTime;
-  }
-
-  /*
-   * Send a confirmation code of a specific kind to a user and store some data.
-   */
-  async sendConfirmation(email, kind, data) {
-    // If a matching code exists, just return it
-    const codeEntry = this.pendingCodes.get(email);
-    if (Server.isValidCode(codeEntry, kind)) {
-      return codeEntry;
-    }
-
-    // Send a new code to the email
-    const code = await security.sendCode(email, kind);
-    const expireTime = Date.now() + CODE_RESET_INTERVAL;
-    const newEntry = { code, kind, data, expireTime, fails: 0 };
-    this.pendingCodes.set(email, newEntry);
-
-    return newEntry;
-  }
-
-  /*
-   * Check if the code the user entered was correct. Returns the data associated with the code if
-   * it was correct and null otherwise.
-   */
-  checkCode(email, kind, code) {
-    // Make sure there is a code for this user
-    const codeEntry = this.pendingCodes.get(email);
-    if (!Server.isValidCode(codeEntry, kind)) {
-      return null;
-    }
-
-    // Make sure the code matches what the user sent
-    if (code !== codeEntry.code) {
-      codeEntry.fails++;
-      if (codeEntry.fails >= CODE_MAX_FAILS) {
-        this.pendingCodes.delete(email);
-      }
-      return null;
-    }
-
-    // The code matches, so remove it from the map and give the user the data
-    this.pendingCodes.delete(email);
-    return codeEntry.data;
-  }
-
-  /*
-   * Start creating an account with the given details. Returns true if an account already exists
-   * and false otherwise.
-   */
-  async startCreation(name, email, pass) {
-    // Hash the account password
-    const hash = await security.hashPassword(pass);
-
-    // Make sure there isn't an existing user before adding the account
-    if (this.newAccounts.has(email)) {
-      return true;
-    } else {
-      this.newAccounts.set(email, { name, hash })
-    }
-
-    // Send a confirmation email to the user
-    await this.sendConfirmation(email, ConfirmKind.newAccount);
-
-    return false;
-  }
-
-  /*
-   * Continue the creation of an account. Returns true if there is an account being created with the
-   * email and password and false otherwise.
-   */
-  async continueCreation(email, pass) {
-    // Check if the specified account exists and the password is correct
-    const account = this.newAccounts.get(email);
-    const exists = account && security.checkPassword(pass, account.hash);
-
-    // Resend the confirmation email if the code expired
-    if (exists) {
-      await this.sendConfirmation(email, ConfirmKind.newAccount);
-    }
-
-    return exists;
-  }
-
-  /*
-   * Finish the creation of an account, recording it in the database permanently.
-   */
-  async finishCreation(email) {
-    // Make sure the account exists and remove it from the map of new accounts
-    const account = this.newAccounts.get(email);
-    if (account) {
-      this.newAccounts.delete(email);
-    } else {
-      throw new RequestError('account does not exist');
-    }
-
-    // Create a new account with the requested info and return the ID if it succeeds
-    const id = await requests.createAccount(account.name, email, account.hash);
-    if (id) {
-      return id;
-    } else {
-      throw new RequestError('account already exists');
     }
   }
 

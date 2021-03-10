@@ -1,14 +1,19 @@
 const security = require('./security');
+const { ConfirmKind } = security;
 
 const crypto = require('crypto');
 const assert = require('assert').strict;
 
 async function runTests() {
+  // Disable actually sending emails
+  security.sendCode.noEmail = true;
+
   // Run the tests many times
   process.stdout.write('Running tests');
   for (let i = 0; i < 50; i++) {
     for (let j = 0; j < 500; j++) {
       await testHash();
+      await testVerificationCodes();
     }
     process.stdout.write('.');
   }
@@ -49,4 +54,30 @@ async function testHash() {
   assert(!security.checkPassword(password1, hash2B));
 }
 
-runTests();
+async function testVerificationCodes() {
+  // Create a new CodeManager
+  const codeManager = new security.CodeManager();
+
+  // Generate two security codes of different types
+  const codeA = (await codeManager.sendConfirmation('a', ConfirmKind.resetPassword, 'a')).code;
+  const codeB = (await codeManager.sendConfirmation('b', ConfirmKind.twoFactor,     'b')).code;
+  if (codeA === codeB) return;
+
+  // Check that invalid codes are not accepted
+  assert(!codeManager.checkCode('a', ConfirmKind.resetPassword, codeB));
+  assert(!codeManager.checkCode('b', ConfirmKind.twoFactor,     codeA));
+
+  // Check that valid codes of the wrong kind are not accepted
+  assert(!codeManager.checkCode('a', ConfirmKind.twoFactor,     codeA));
+  assert(!codeManager.checkCode('b', ConfirmKind.resetPassword, codeB));
+
+  // Check that valid codes of the correct kind are accepted
+  assert(codeManager.checkCode('a', ConfirmKind.resetPassword, codeA));
+
+  // Check that after 3 incorrect attempts, a valid code becomes unusable
+  assert(!codeManager.checkCode('b', ConfirmKind.twoFactor,     codeA));
+  assert(!codeManager.checkCode('b', ConfirmKind.twoFactor,     codeA));
+  assert(!codeManager.checkCode('b', ConfirmKind.twoFactor,     codeB));
+}
+
+runTests().catch(err => console.error(err));
