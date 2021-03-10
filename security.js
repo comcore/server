@@ -1,6 +1,7 @@
 const requests = require('./requests');
 const { RequestError } = requests;
 
+const fs = require('fs');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 
@@ -18,7 +19,13 @@ const codeLimit = Math.pow(10, 6);
 /*
  * The mail transporter which will be used to send the emails.
  */
-let transporter = nodemailer.createTransport({ sendmail: true });
+let transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: 'comcorecrew@gmail.com',
+        pass: fs.readFileSync('gmail_password.txt', 'utf8'),
+    },
+});
 
 /*
  * Generate a code and send it to the requested email address.
@@ -56,6 +63,7 @@ async function sendCode(email, kind) {
 
   // Send the email containing the code to the user
   await transporter.sendMail({
+    from: 'Comcore comcorecrew@gmail.com',
     to: email,
     subject: `${subject} - Comcore`,
     text: `Please enter the code ${code} when prompted to ${message}.`,
