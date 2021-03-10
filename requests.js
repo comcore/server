@@ -1,6 +1,8 @@
 var MongoClient = require('mongodb').MongoClient;
 var ObjectId = require('mongodb').ObjectId;
-var url = "mongodb://localhost:29356";
+var url = "mongodb://localhost:29342";
+//Server URL
+//var url = "mongodb://localhost:27017";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -116,22 +118,68 @@ async function testResetPassword(user, hash) {
  * the newly created group.
  */
 async function createGroup(user, name) {
-  throw new RequestError('unimplemented: createGroup');
+  try {
+    var newGrpUsr = {user: ObjectId(user), role: "Owner", muted: false};
+    var newGrp = {name: name, grpUsers: [newGrpUsr]};
+      db = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
+      const result = await db.db("ComcoreProd").collection("Groups").insertOne(newGrp);
+      db.close();
+
+      var query = { _id: ObjectId(user) };
+      var newval = { $push: {groups: ObjectId(result.insertedId.toHexString())} };
+      db2 = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
+      await db2.db("ComcoreProd").collection("Users").updateOne(query, newval);
+      db2.close();
+
+      return result.insertedId.toHexString();
+  } catch(err) {
+    throw err;
+  }
 }
 
-/*
- * Get a list of the groups which a user is part of. Each entry in the array should look like:
- *
- * {
- *   id:    the ID of the group,
- *   name:  the name of the group,
- *   role:  'owner' | 'moderator' | 'user',
- *   muted: false | true,
- * }
- */
+//testCreateGroup("6048eaef45189a18f94be8e7", "test1 Group")
+async function testCreateGroup(user, name) {
+  const result = await createGroup(user, name);
+  console.log(result)
+}
+
+//NEED TO DO!!!!
+// /*
+//  * Get a list of the groups which a user is part of. Each entry in the array should look like:
+//  *
+//  * {
+//  *   id:    the ID of the group,
+//  *   name:  the name of the group,
+//  *   role:  'owner' | 'moderator' | 'user',
+//  *   muted: false | true,
+//  * }
+//  */
 async function getGroups(user) {
   throw new RequestError('unimplemented: getGroups');
 }
+// async function getGroups(user) {
+//   try {
+//     db = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
+//     const result = await db.db("ComcoreProd").collection("Groups").find({"grpUsers.user": {$eq: ObjectId(user)}}, { projection: { _id: 0, name: 0} });
+//     db.close();
+//     console.log(result)
+//     // return {
+//     //      id: result._id.toHexString(),
+//     //      name: result.name,
+//     //      role: result.role,
+//     //      muted: result.muted,
+//     //    };
+//   } catch(err) {
+//     throw err;
+//   }
+// }
+//
+// testGetGroups("6047c3b2b8a960554f0ece18")
+// function testGetGroups(user) {
+//  getGroups(user)
+//   .then(result => console.log(result))
+//   .catch(err => console.log(err))
+// }
 
 /*
  * Create a new chat in the given group ID with the given name. Make sure that the user ID is part
@@ -139,7 +187,7 @@ async function getGroups(user) {
  * Return the chat ID of the new chat.
  */
 async function createChat(user, group, name) {
-  throw new RequestError('unimplemented: createChat');
+
 }
 
 /*
