@@ -94,6 +94,13 @@ async function testCreateAccount(name, email, hash) {
 }
 
 /*
+ * Look up the name associated with a user ID. This is used for labeling notifications.
+ */
+async function getUserName(user) {
+  throw new RequestError('unimplemented: getUserName');
+}
+
+/*
  * Reset the password of an account specified by a user ID to have the provided hashed password.
  */
 async function resetPassword(user, hash) {
@@ -143,17 +150,23 @@ async function testCreateGroup(user, name) {
   console.log(result)
 }
 
-//NEED TO DO!!!!
-// /*
-//  * Get a list of the groups which a user is part of. Each entry in the array should look like:
-//  *
-//  * {
-//  *   id:    the ID of the group,
-//  *   name:  the name of the group,
-//  *   role:  'owner' | 'moderator' | 'user',
-//  *   muted: false | true,
-//  * }
-//  */
+/*
+ * Look up the name associated with a group ID. This is used for labeling notifications.
+ */
+async function getGroupName(group) {
+  throw new RequestError('unimplemented: getGroupName');
+}
+
+/*
+ * Get a list of the groups which a user is part of. Each entry in the array should look like:
+ *
+ * {
+ *   id:    the ID of the group,
+ *   name:  the name of the group,
+ *   role:  'owner' | 'moderator' | 'user',
+ *   muted: false | true,
+ * }
+ */
 async function getGroups(user) {
   throw new RequestError('unimplemented: getGroups');
 }
@@ -192,8 +205,8 @@ async function createChat(user, group, name) {
 
 /*
  * Get a list of the users in a group. Make sure that the user ID is part of the group before
- * creating the list, and throw a RequestError if they are not authorized. Each entry in the array
- * should look like:
+ * creating the list, and throw a RequestError if they are not authorized. The current user should
+ * be included in the list. Each entry in the array should look like:
  *
  * {
  *   id:    the ID of the user,
@@ -218,6 +231,54 @@ async function getUsers(user, group) {
  */
 async function getChats(user, group) {
   throw new RequestError('unimplemented: getChats');
+}
+
+/*
+ * Send an invite to another user to join a group. Make sure that the user has 'moderator' or
+ * 'owner' status and that the target user is not already in the group. Throw a RequestError if the
+ * request is invalid.
+ */
+async function sendInvite(user, group, targetUser) {
+  throw new RequestError('unimplemented: sendInvite');
+}
+
+/*
+ * Get a list of pending invites that a user has received. Each entry in the array should look like:
+ *
+ * {
+ *   id:      the ID of the group,
+ *   name:    the name of the group,
+ *   inviter: the name of the user who sent the invitation,
+ * }
+ */
+async function getInvites(user) {
+  throw new RequestError('unimplemented: getInvites');
+}
+
+/*
+ * Remove an invitation from the list of pending invitations. If 'accept' is true, add the user to
+ * the group. Otherwise, just remove the invitation and don't add them to any group.
+ */
+async function replyToInvite(user, group, accept) {
+  throw new RequestError('unimplemented: replyToInvite');
+}
+
+/*
+ * Remove the user from the group.
+ */
+async function leaveGroup(user, group) {
+  throw new RequestError('unimplemented: leaveGroup');
+}
+
+/*
+ * Kick the target user from the group. Make sure that both users are part of the group and that
+ * 'user' has a more powerful role than 'targetUser' before kicking them. The logic should be the
+ * same as leaveGroup(), just with an additional check to make sure the user has permission.
+ */
+async function kick(user, group, targetUser) {
+  // TODO Implement logic to make sure the user has permission to kick the target user
+
+  await leaveGroup(targetUser, group);
 }
 
 /*
@@ -284,12 +345,19 @@ module.exports = {
   initializeDatabase,
   lookupAccount,
   createAccount,
+  getUserName,
   resetPassword,
   createGroup,
+  getGroupName,
   getGroups,
   createChat,
   getUsers,
   getChats,
+  sendInvite,
+  getInvites,
+  replyToInvite,
+  leaveGroup,
+  kick,
   setRole,
   setMuted,
   sendMessage,

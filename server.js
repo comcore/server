@@ -2,6 +2,7 @@ const requests = require('./requests');
 const { RequestError } = requests;
 
 const security = require('./security');
+const { ConfirmKind } = security;
 
 const tls = require('tls');
 const fs = require('fs');
@@ -18,15 +19,404 @@ const CODE_RESET_INTERVAL = 60 * 60 * 1000;
 const CODE_MAX_FAILS = 3;
 
 /*
+ * Messages which will automatically log out the user regardless of the current state.
+ */
+const LOGOUT_MESSAGES = ['login', 'createAccount', 'requestReset', 'logout'];
+
+/*
+ * Represents an error for an unauthorized access (invalid login state).
+ */
+class UnauthorizedError extends RequestError {
+  constructor() {
+    super('unauthorized');
+    this.name = "UnauthorizedError";
+  }
+}
+
+/*
+ * The login state corresponding to a logged out user.
+ */
+class StateLoggedOut {
+  constructor(connection) {
+    this.connection = connection;
+  }
+
+  async handleRequest(kind, data) {
+    switch (kind) {
+      case 'login': {
+        const { email, pass } = data;
+
+        // Check if the account is in the process of being confirmed still
+        if (await server.continueCreation(email, pass))  {
+          // Transition to the confirm email state
+          this.connection.setState(
+            new StateConfirmEmail(this.connection, email, ConfirmKind.newAccount));
+
+          return { status: 'ENTER_CODE' };
+        }
+
+        // Check if the account exists
+        const account = await requests.lookupAccount(email);
+        if (!account) {
+          return { status: 'DOES_NOT_EXIST' };
+        }
+
+        // Check if the password is correct
+        if (!security.checkPassword(pass, account.hash)) {
+          return { status: 'INVALID_PASSWORD' };
+        }
+
+        // Transition to the logged in state
+        this.connection.setState(
+          new StateLoggedIn(this.connection, account.id));
+
+        return { status: 'SUCCESS' };
+      }
+
+      case 'createAccount': {
+        const { name, email, pass } = data;
+
+        if (!name || !email) {
+          throw new RequestError('name and email address cannot be empty');
+        }
+
+        // Check if the account already exists
+        if (await requests.lookupAccount(email)) {
+          return { created: false };
+        }
+
+        // Start account creation by sending an email and recording the temporary account
+        if (await server.startCreation(name, email, pass)) {
+          return { created: false };
+        }
+
+        // Transition to the confirm email state
+        this.connection.setState(
+          new StateConfirmEmail(this.connection, email, ConfirmKind.newAccount));
+
+        return { created: true };
+      }
+
+      case 'requestReset': {
+        const { email } = data;
+
+        // Check if the account exists
+        const account = await requests.lookupAccount(email);
+        if (!account) {
+          return { sent: false };
+        }
+
+        // Send a password reset confirmation email
+        await server.sendConfirmation(email, ConfirmKind.resetPassword, account.id);
+
+        // Transition to the confirm email state
+        this.connection.setState(
+          new StateConfirmEmail(this.connection, email, ConfirmKind.resetPassword));
+
+        return { sent: true };
+      }
+
+      case 'logout':
+        return {};
+
+      default:
+        throw new UnauthorizedError();
+    }
+  }
+}
+
+/*
+ * The login state corresponding to a user who is confirming their email.
+ */
+class StateConfirmEmail {
+  constructor(connection, email, confirmKind) {
+    this.connection = connection;
+    this.email = email;
+    this.confirmKind = confirmKind;
+  }
+
+  async handleRequest(kind, data) {
+    switch (kind) {
+      case 'enterCode':
+        const { code } = data;
+
+        // Check if the code and ConfirmKind match an existing code
+        const codeData = server.checkCode(this.email, this.confirmKind, code);
+        if (codeData === null) {
+          return { correct: false };
+        }
+
+        // Finish the corresponding action for the ConfirmKind
+        switch (this.confirmKind) {
+          case ConfirmKind.newAccount:
+            // Finish account creation and return the user ID
+            const id = await server.finishCreation(this.email);
+
+            // Transition to the logged in state
+            this.connection.setState(
+              new StateLoggedIn(this.connection, id));
+
+            break;
+
+          case ConfirmKind.twoFactor:
+            // Transition to the logged in state
+            this.connection.setState(
+              new StateLoggedIn(this.connection, codeData));
+
+            break;
+
+          case ConfirmKind.resetPassword:
+            // Transition to the reset password state
+            this.connection.setState(
+              new StateResetPassword(this.connection, codeData));
+
+            break;
+        }
+
+        return { correct: true };
+      default:
+        throw new UnauthorizedError();
+    }
+  }
+}
+
+/*
+ * The login state corresponding to a user who is resetting their password.
+ */
+class StateResetPassword {
+  constructor(connection, user) {
+    this.connection = connection;
+    this.user = user;
+  }
+
+  async handleRequest(kind, data) {
+    switch (kind) {
+      case 'finishReset':
+        const { pass } = data;
+
+        // Hash the password and tell the database to update it
+        const hash = await security.hashPassword(pass);
+        await requests.resetPassword(this.user, hash);
+
+        // Log out any other devices belonging to this user
+        server.forceLogout(this.user, this);
+
+        // Transition to the logged in state
+        this.connection.setState(
+          new StateLoggedIn(this.connection, this.user));
+
+        return { reset: true };
+      default:
+        throw new UnauthorizedError();
+    }
+  }
+}
+
+/*
+ * The login state corresponding to logged in user.
+ */
+class StateLoggedIn {
+  constructor(connection, user) {
+    this.connection = connection;
+    this.user = user;
+  }
+
+  /*
+   * Tell the server that the user is fully logged in.
+   */
+  start() {
+    server.loginConnection(this.connection, this.user);
+  }
+
+  /*
+   * Tell the server that the user isn't logged in anymore.
+   */
+  stop() {
+    server.logoutConnection(this.connection, this.user);
+  }
+
+  async handleRequest(kind, data) {
+    switch (kind) {
+      case 'createGroup': {
+        const { name } = data;
+
+        if (!name) {
+          throw new RequestError('group name cannot be empty');
+        }
+
+        const id = await requests.createGroup(this.user, name);
+        return { id };
+      }
+
+      case 'getGroups': {
+        const groups = await requests.getGroups(this.user);
+        return { groups };
+      }
+
+      case 'createChat': {
+        const { group, name } = data;
+
+        if (!name) {
+          throw new RequestError('chat name cannot be empty');
+        }
+
+        const id = await requests.createChat(this.user, group, name);
+        return { id };
+      }
+
+      case 'getUsers': {
+        const { group } = data;
+        const users = await requests.getUsers(this.user, group);
+        return { users };
+      }
+
+      case 'getChats': {
+        const { group } = data;
+        const chats = await requests.getChats(this.user, group);
+        return { chats };
+      }
+
+      case 'sendInvite': {
+        const { group, email } = data;
+
+        if (!email) {
+          throw new RequestError('email address cannot be empty');
+        }
+
+        // Make sure that the email corresponds to a user
+        const target = await requests.lookupAccount(email);
+        if (!target) {
+          return { sent: false };
+        }
+
+        // Get the names of the inviter and the group
+        const inviter = await requests.getUserName(this.user);
+        const name = await requests.getGroupName(group);
+
+        // Record the invite for the user in the group
+        await requests.sendInvite(this.user, group, target.id);
+
+        // Also notify the target user that they received an invitation
+        server.forward(target.id, 'invite', { id: group, name, inviter });
+        return { sent: true };
+      }
+
+      case 'getInvites': {
+        const invites = await requests.getInvites(this.user);
+        return { invites };
+      }
+
+      case 'replyToInvite': {
+        const { group, accept } = data;
+        await requests.replyToInvite(this.user, group, accept);
+        return {};
+      }
+
+      case 'leaveGroup': {
+        const { group } = data;
+        await requests.leaveGroup(this.user, group);
+        return {};
+      }
+
+      case 'kick': {
+        const { group, target } = data;
+        await requests.kick(this.user, group, target);
+
+        // Also notify the target user that they were kicked
+        server.forward(target, 'kicked', { group });
+
+        return {};
+      }
+
+      case 'setRole': {
+        const { group, target, role } = data;
+        await requests.setRole(this.user, group, target, role);
+
+        // Also notify the target user that their role has changed
+        server.forward(target, 'roleChanged', { group, role });
+
+        return {};
+      }
+
+      case 'setMuted': {
+        const { group, target, muted } = data;
+        await requests.setMuted(this.user, group, target, muted);
+
+        // Also notify the target user that their muted status has changed
+        server.forward(target, 'mutedChanged', { group, muted });
+        return {};
+      }
+
+      case 'sendMessage': {
+        const { group, chat, contents } = data;
+
+        if (!contents) {
+          throw new RequestError('message contents cannot be empty');
+        }
+
+        // Get the name of the current user
+        const name = await requests.getUserName(this.user);
+
+        // Get a list of all other users in a group to notify
+        const chatUsers = await requests.getUsers(this.user, group);
+
+        // Store the sent message in the database
+        const timestamp = Date.now();
+        const id = await requests.sendMessage(this.user, group, chat, timestamp, contents);
+
+        // Record the information about the message
+        const message = {
+          group,
+          chat,
+          id,
+          sender: { id: this.user, name },
+          timestamp,
+          contents,
+        };
+
+        // Also notify every user in the group of the new message, except for the one that sent it
+        chatUsers.forEach(chatUser => {
+          if (chatUser.id !== this.user) {
+            server.forward(chatUser.id, 'message', message);
+          }
+        });
+
+        return {};
+      }
+
+      case 'getMessages': {
+        let { group, chat, after, before } = data;
+
+        // All messages are higher than 0
+        if (after < 1) {
+          after = 0;
+        }
+
+        // All messages are lower than 2^53
+        if (before < 1) {
+          before = 0x20000000000000;
+        }
+
+        const messages = await requests.getMessages(this.user, group, chat, after, before);
+        return { messages };
+      }
+
+      default:
+        throw new RequestError('unknown request kind: ' + kind);
+    }
+  }
+}
+
+/*
  * Represents a server connection with a single client.
  */
 class Connection {
-  constructor(server, socket) {
-    // The parent server
-    this.server = server;
-
+  constructor(socket) {
     // The socket for the connection
     this.socket = socket;
+
+    // The current login state of the connection
+    this.state = new StateLoggedOut(this);
 
     // Whether the connection is accepting requests
     this.isCancelled = false;
@@ -39,15 +429,6 @@ class Connection {
 
     // A queue of requests that are waiting to be fulfulled
     this.waitingRequests = new Dequeue();
-
-    // The user info { id, email } if the user is logged in
-    this.userInfo = null;
-
-    // Whether there is a pending code that must be entered in order to be authenticated fully
-    this.pendingCode = false;
-
-    // Whether the user can reset their password
-    this.canReset = false;
 
     socket.on('data', data => {
       this.lineBuffer += data;
@@ -82,40 +463,23 @@ class Connection {
   }
 
   /*
-   * Mark a user as logged in with a user ID and email address. If codeCanReset is null, there is no
-   * authentication code. Otherwise, it is a boolean representing whether the authentication code
-   * can be used for resetting a password.
+   * Transition to a new login state.
    */
-  async login(id, email, codeCanReset) {
-    this.logout();
-
-    this.userInfo = { id, email };
-
-    if (codeCanReset === null) {
-      this.pendingCode = false;
-    } else {
-      await this.server.generateCode(id, email, codeCanReset);
-      this.pendingCode = true;
-    }
-
-    this.server.loginConnection(id, this);
+  setState(state) {
+    this.state.stop?.();
+    this.state = state;
+    this.state.start?.();
   }
 
   /*
    * Log the user out if they are logged in.
    */
   logout() {
-    if (this.userInfo) {
-      this.server.logoutConnection(this.userInfo.id, this);
-      this.userInfo = null;
+    if (this.state instanceof StateLoggedOut) {
+      return;
     }
-  }
 
-  /*
-   * Get the user's user ID if they are fully logged in (with no pending code).
-   */
-  userID() {
-    return this.userInfo && !this.pendingCode ? this.userInfo.id : null;
+    this.setState(new StateLoggedOut(this));
   }
 
   /*
@@ -138,13 +502,6 @@ class Connection {
   }
 
   /*
-   * Send a received message from a chat to the client.
-   */
-  receiveMessage(message) {
-    this.send('message', message);
-  }
-
-  /*
    * Handle any pending requests if not currently handling a request.
    */
   async handleRequests() {
@@ -155,18 +512,27 @@ class Connection {
     this.isBusy = true;
     while (!this.isCancelled && this.waitingRequests.length > 0) {
       const request = this.waitingRequests.shift();
-      await this.runRequest(request)
+      await this.handleRequest(request)
         .then(response =>
           this.send('REPLY', response))
         .catch(err => {
           let message;
           if (err instanceof RequestError) {
+            // If it's a RequestError, it's an error triggered by the user
             message = err.message;
           } else {
+            // Otherwise it's a server error that shouldn't have happened
             console.error(err);
             message = 'internal server error';
           }
+
+          // Send the error message to the client
           this.send('ERROR', { message });
+
+          // If it was an unauthorized request, inform the user that they are logged out
+          if (err instanceof UnauthorizedError) {
+            this.forceLogout();
+          }
         });
     }
     this.isBusy = false;
@@ -175,183 +541,16 @@ class Connection {
   /*
    * Handle a request received from the client.
    */
-  async runRequest(request) {
+  async handleRequest(request) {
     const { kind, data } = JSON.parse(request);
-    switch (kind) {
-      case 'logout': {
-        this.logout();
-        return {};
-      }
 
-      case 'login': {
-        this.logout();
-
-        const { email, pass } = data;
-        const account = await requests.lookupAccount(email);
-        if (!account) {
-          return { status: 'DOES_NOT_EXIST' };
-        }
-
-        if (!security.checkPassword(pass, account.hash)) {
-          return { status: 'INVALID_PASSWORD' };
-        }
-
-        await this.login(account.id, email, null);
-        return { status: 'SUCCESS' };
-      }
-
-      case 'createAccount': {
-        this.logout();
-
-        const { name, email, pass } = data;
-        const hash = security.hashPassword(pass);
-        const id = await requests.createAccount(name, email, hash);
-        if (!id) {
-          return { created: false };
-        }
-
-        await this.login(id, email, false);
-        return { created: true };
-      }
-
-      case 'requestReset': {
-        this.logout();
-
-        const { email } = data;
-        const account = await requests.lookupAccount(email);
-        if (!account) {
-          return { sent: false };
-        }
-
-        await this.login(account.id, email, true);
-        return { sent: true };
-      }
-
-      case 'enterCode': {
-        if (!this.userInfo) {
-          throw new RequestError('enterCode called without logging in');
-        }
-
-        const { code } = data;
-        const codeCanReset = this.server.verifyCode(this.userInfo.id, code);
-        if (codeCanReset === null) {
-          return { correct: false };
-        }
-
-        this.canReset = codeCanReset;
-        this.pendingCode = false;
-        return { correct: true };
-      }
-
-      default:
-        const user = this.userID();
-        if (!user) {
-          throw new RequestError('unauthorized');
-        }
-
-        return await this.runAuthorizedRequest(user, kind, data);
+    // Log out if the message required the user to be logged out first
+    if (LOGOUT_MESSAGES.includes(kind)) {
+      this.logout();
     }
-  }
 
-  /*
-   * Handle a request received from the client that requires the user to be logged in.
-   */
-  async runAuthorizedRequest(user, kind, data) {
-    switch (kind) {
-      case 'finishReset': {
-        const { pass } = data;
-        if (!this.canReset) {
-          return { reset: false };
-        }
-
-        const hash = security.hashPassword(pass);
-        await requests.resetPassword(user, hash);
-        this.server.forceLogout(user, this);
-        return { reset: true };
-      }
-
-      case 'createGroup': {
-        const { name } = data;
-        const id = await requests.createGroup(user, name);
-        return { id };
-      }
-
-      case 'getGroups': {
-        const groups = await requests.getGroups(user);
-        return { groups };
-      }
-
-      case 'createChat': {
-        const { group, name } = data;
-        const id = await requests.createChat(user, group, name);
-        return { id };
-      }
-
-      case 'getUsers': {
-        const { group } = data;
-        const users = await requests.getUsers(user, group);
-        return { users };
-      }
-
-      case 'getChats': {
-        const { group } = data;
-        const chats = await requests.getChats(user, group);
-        return { chats };
-      }
-
-      case 'setRole': {
-        const { group, target, role } = data;
-        await requests.setRole(user, group, target, role);
-        return {};
-      }
-
-      case 'setMuted': {
-        const { group, target, muted } = data;
-        await requests.setMuted(user, group, target, muted);
-        return {};
-      }
-
-      case 'sendMessage': {
-        const { group, chat, contents } = data;
-        const timestamp = Date.now();
-        const chatUsers = await requests.getUsers(user, group);
-        const id = await requests.sendMessage(user, group, chat, timestamp, contents);
-        const message = {
-          group,
-          chat,
-          id,
-          sender: user,
-          timestamp,
-          contents,
-        };
-        chatUsers.forEach(chatUser => {
-          if (chatUser.id !== user) {
-            this.server.forwardMessage(chatUser.id, message);
-          }
-        });
-        return {};
-      }
-
-      case 'getMessages': {
-        let { group, chat, after, before } = data;
-
-        // All messages are higher than 0
-        if (after < 1) {
-          after = 0;
-        }
-
-        // All messages are lower than 2^52
-        if (before < 1) {
-          before = 0x20000000000000;
-        }
-
-        const messages = await requests.getMessages(user, group, chat, after, before);
-        return { messages };
-      }
-
-      default:
-        throw new RequestError('unknown message kind: ' + kind);
-    }
+    // Have the current login state handle the request
+    return await this.state.handleRequest(kind, data);
   }
 }
 
@@ -360,24 +559,38 @@ class Connection {
  */
 class Server {
   constructor() {
+    // The server which will be initialized by start()
+    this.server = null;
+
     // A set of connections that are currently open
     this.connections = new Set();
 
     // A map of user IDs to sets of current connections
     this.loggedIn = new Map();
 
-    // A map of user IDs to pending codes { code, forReset, expireTime, fails }
+    // A map of email addresses to pending codes { code, kind, data, expireTime, fails }
     this.pendingCodes = new Map();
+
+    // A map of email addresses to new accounts { name, hash }
+    this.newAccounts = new Map();
+  }
+
+  /*
+   * Start the server if it is not already started.
+   */
+  start() {
+    if (this.server) {
+      return;
+    }
 
     const options = {
       key: fs.readFileSync('key.pem'),
       cert: fs.readFileSync('cert.pem'),
     };
 
-    // The server which is currently listening for connections
     this.server = tls.createServer(options, socket => {
       socket.setEncoding('utf8');
-      const connection = new Connection(this, socket);
+      const connection = new Connection(socket);
       this.connections.add(connection);
       socket.on('error', err => {});
       socket.on('close', hadError => {
@@ -393,14 +606,16 @@ class Server {
    * Close the server and all connections.
    */
   stop() {
-    this.server.close();
-    this.connections.forEach(connection => connection.stop());
+    if (this.server) {
+      this.server.close();
+      this.connections.forEach(connection => connection.stop());
+    }
   }
 
   /*
    * Record that a user has logged into a connection.
    */
-  loginConnection(id, connection) {
+  loginConnection(connection, id) {
     const connections = this.loggedIn.get(id);
     if (connections) {
       connections.add(connection);
@@ -412,7 +627,7 @@ class Server {
   /*
    * Record that a user has logged out from a connection.
    */
-  logoutConnection(id, connection) {
+  logoutConnection(connection, id) {
     const connections = this.loggedIn.get(id);
     if (connections) {
       connections.delete(connection);
@@ -423,44 +638,113 @@ class Server {
   }
 
   /*
-   * Generate a code if there isn't already a recent pending code that can be used.
+   * Check if a confirmation code is still valid and is of the correct kind.
    */
-  async generateCode(id, email, forReset) {
-    const codeEntry = this.pendingCodes.get(id);
-    const time = Date.now();
-    if (codeEntry && codeEntry.forReset === forReset && time < codeEntry.expireTime) {
-      return;
-    }
-
-    const code = await security.sendCode(email, forReset);
-    const expireTime = time + CODE_RESET_INTERVAL;
-    this.pendingCodes.set(id, { code, forReset, expireTime, fails: 0 });
+  static isValidCode(codeEntry, kind) {
+    return codeEntry && codeEntry.kind === kind && Date.now() < codeEntry.expireTime;
   }
 
   /*
-   * Verify that a code is valid for a user. Returns null on invalid code, otherwise returns true
-   * if the code can be used for resetting a password or false otherwise.
+   * Send a confirmation code of a specific kind to a user and store some data.
    */
-  verifyCode(id, code) {
-    const codeEntry = this.pendingCodes.get(id);
-    if (!codeEntry) {
+  async sendConfirmation(email, kind, data) {
+    // If a matching code exists, just return it
+    const codeEntry = this.pendingCodes.get(email);
+    if (Server.isValidCode(codeEntry, kind)) {
+      return codeEntry;
+    }
+
+    // Send a new code to the email
+    const code = await security.sendCode(email, kind);
+    const expireTime = Date.now() + CODE_RESET_INTERVAL;
+    const newEntry = { code, kind, data, expireTime, fails: 0 };
+    this.pendingCodes.set(email, newEntry);
+
+    return newEntry;
+  }
+
+  /*
+   * Check if the code the user entered was correct. Returns the data associated with the code if
+   * it was correct and null otherwise.
+   */
+  checkCode(email, kind, code) {
+    // Make sure there is a code for this user
+    const codeEntry = this.pendingCodes.get(email);
+    if (!Server.isValidCode(codeEntry, kind)) {
       return null;
     }
 
-    if (codeEntry.code !== code) {
+    // Make sure the code matches what the user sent
+    if (code !== codeEntry.code) {
       codeEntry.fails++;
       if (codeEntry.fails >= CODE_MAX_FAILS) {
-        this.pendingCodes.delete(id);
+        this.pendingCodes.delete(email);
       }
       return null;
     }
 
-    this.pendingCodes.delete(id);
-    if (Date.now() < codeEntry.expireTime) {
-      return codeEntry.forReset;
+    // The code matches, so remove it from the map and give the user the data
+    this.pendingCodes.delete(email);
+    return codeEntry.data;
+  }
+
+  /*
+   * Start creating an account with the given details. Returns true if an account already exists
+   * and false otherwise.
+   */
+  async startCreation(name, email, pass) {
+    // Hash the account password
+    const hash = await security.hashPassword(pass);
+
+    // Make sure there isn't an existing user before adding the account
+    if (this.newAccounts.has(email)) {
+      return true;
+    } else {
+      this.newAccounts.set(email, { name, hash })
     }
 
-    return null;
+    // Send a confirmation email to the user
+    await this.sendConfirmation(email, ConfirmKind.newAccount);
+
+    return false;
+  }
+
+  /*
+   * Continue the creation of an account. Returns true if there is an account being created with the
+   * email and password and false otherwise.
+   */
+  async continueCreation(email, pass) {
+    // Check if the specified account exists and the password is correct
+    const account = this.newAccounts.get(email);
+    const exists = account && security.checkPassword(pass, account.hash);
+
+    // Resend the confirmation email if the code expired
+    if (exists) {
+      await this.sendConfirmation(email, ConfirmKind.newAccount);
+    }
+
+    return exists;
+  }
+
+  /*
+   * Finish the creation of an account, recording it in the database permanently.
+   */
+  async finishCreation(email) {
+    // Make sure the account exists and remove it from the map of new accounts
+    const account = this.newAccounts.get(email);
+    if (account) {
+      this.newAccounts.delete(email);
+    } else {
+      throw new RequestError('account does not exist');
+    }
+
+    // Create a new account with the requested info and return the ID if it succeeds
+    const id = await requests.createAccount(account.name, email, account.hash);
+    if (id) {
+      return id;
+    } else {
+      throw new RequestError('account already exists');
+    }
   }
 
   /*
@@ -480,27 +764,33 @@ class Server {
   }
 
   /*
-   * Forward a message to all connections of a user.
+   * Forward a notification to all connections of a user.
    */
-  forwardMessage(id, message) {
+  forward(id, kind, data) {
     const connections = this.loggedIn.get(id);
     if (!connections) {
       return;
     }
 
     connections.forEach(connection => {
-      connection.receiveMessage(message);
+      connection.send(kind, data);
     });
   }
 }
 
-// Initialize the database
-requests.initializeDatabase();
-
-// Initialize the server
+// Create a server object in case it is needed during initialization
 const server = new Server();
+
+// Initialize the database
+// TODO if the initializeDatabase() function is moved to just be executed when the module loads,
+// then this call can be removed. This might be simpler since the database connection variable must
+// be shared between calls anyway.
+requests.initializeDatabase?.();
 
 // Add a handler for SIGINT so the server stops gracefully
 process.on('SIGINT', () => {
   server.stop();
 });
+
+// Start the server
+server.start();
