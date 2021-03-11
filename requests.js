@@ -2,10 +2,11 @@ var MongoClient = require('mongodb').MongoClient;
 var ObjectId = require('mongodb').ObjectId;
 var Server = require('mongodb').Server;
 
-//Local URL
-//const url = "mongodb://localhost:29651";
-//Server URL
- const url = "mongodb://localhost:27017";
+// Server URL
+const url = "mongodb://localhost:27017";
+
+// Local URL
+// const url = "mongodb://localhost:29651";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -471,21 +472,21 @@ async function kick(user, group, targetUser) {
  * ownership (since a group can only have one owner). A user cannot change their own role, so also
  * check that the two users are different. Throw a RequestError if the request is invalid.
  */
- async function setRole(user, group, targetUser, role) {
-   if(user == targetUser) {
-     throw new RequestError('Error: User and target cannot be the same');
-   }
-   await permissionCheck(user, group, targetUser, 'set role of');
-   await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.role" : role} } );
- }
+async function setRole(user, group, targetUser, role) {
+  if(user == targetUser) {
+    throw new RequestError('Error: User and target cannot be the same');
+  }
+  await permissionCheck(user, group, targetUser, 'set role of');
+  await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.role" : role} } );
+}
 
- //testSetRole("6047c3b2b8a960554f0ece18", "6048f0f457d365977091d97a", "6048ea6f9a2bd518ec8ba0a9", "moderator")
- async function testSetRole(user, group, targetUser, muted) {
-   await initializeDatabase();
-   const result = await setRole(user, group, targetUser, muted);
-   //console.log(result);
-   await closeDatabase();
- }
+//testSetRole("6047c3b2b8a960554f0ece18", "6048f0f457d365977091d97a", "6048ea6f9a2bd518ec8ba0a9", "moderator")
+async function testSetRole(user, group, targetUser, muted) {
+  await initializeDatabase();
+  const result = await setRole(user, group, targetUser, muted);
+  //console.log(result);
+  await closeDatabase();
+}
 
 /*
  * Set the muted status of another user in a group. Make sure that both users are part of the group
@@ -493,21 +494,22 @@ async function kick(user, group, targetUser) {
  * user cannot mute/unmute themselves, so also check that the two users are different. Throw a
  * RequestError if the request is invalid.
  */
- async function setMuted(user, group, targetUser, muted) {
-   if(user == targetUser) {
-     throw new RequestError('Error: User and target cannot be the same');
-   }
-   await permissionCheck(user, group, targetUser, 'mute/unmute');
-   await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.muted" : muted} } );
- }
+async function setMuted(user, group, targetUser, muted) {
+  if(user == targetUser) {
+    throw new RequestError('Error: User and target cannot be the same');
+  }
+  await permissionCheck(user, group, targetUser, 'mute/unmute');
+  await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.muted" : muted} } );
+}
 
- //testSetMuted("6047c3b2b8a960554f0ece18", "6048f0f457d365977091d97a", "6048ea6f9a2bd518ec8ba0a9", true)
- async function testSetMuted(user, group, targetUser, muted) {
-   await initializeDatabase();
-   const result = await setMuted(user, group, targetUser, muted);
-   //console.log(result);
-   await closeDatabase();
- }
+//testSetMuted("6047c3b2b8a960554f0ece18", "6048f0f457d365977091d97a", "6048ea6f9a2bd518ec8ba0a9", true)
+async function testSetMuted(user, group, targetUser, muted) {
+  await initializeDatabase();
+  const result = await setMuted(user, group, targetUser, muted);
+  //console.log(result);
+  await closeDatabase();
+}
+
 /*
  * Send a message in a chat in a group. Make sure that the user ID is part of the group, that
  * the chat is part of the group, and that the user isn't muted before sending the message,
@@ -566,8 +568,7 @@ async function getMessages(user, group, chat, after, before) {
   }
 
   const result2 = await db.collection("Messages").find({chatId: ObjectId(chat), msgId: {$gt: after, $lt: before}}, { projection: {_id:0, chatId: 0}}).toArray();
-  var i;
-  for(i = 0; i < result2.length; i++) {
+  for (var i = 0; i < result2.length; i++) {
     result2[i].id = result2[i]['msgId'];
     result2[i].sender = result2[i]['userId'];
     result2[i].timestamp = result2[i]['time'];
@@ -576,7 +577,7 @@ async function getMessages(user, group, chat, after, before) {
     delete result2[i].userId;
     delete result2[i].time;
     delete result2[i].msg;
-}
+  }
   return result2;
 }
 
