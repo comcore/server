@@ -2,9 +2,10 @@ var MongoClient = require('mongodb').MongoClient;
 var ObjectId = require('mongodb').ObjectId;
 var Server = require('mongodb').Server;
 
-// const url = "mongodb://localhost:29342";
+//Local URL
+const url = "mongodb://localhost:29651";
 //Server URL
-const url = "mongodb://localhost:27017";
+//const url = "mongodb://localhost:27017";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -111,7 +112,19 @@ async function testCreateAccount(name, email, hash) {
  * Look up the name associated with a user ID. This is used for labeling notifications.
  */
 async function getUserName(user) {
-  throw new RequestError('unimplemented: getUserName');
+  const result = await db.collection("Users").findOne({_id: ObjectId(user)});
+  if (result === null) {
+    return null;
+  }
+  return result.name;
+}
+
+//testGetUserName("6048eaef45189a18f94be8e7");
+async function testGetUserName(user) {
+  await initializeDatabase();
+  const result = await getUserName(user);
+  console.log(result);
+  await closeDatabase();
 }
 
 /*
@@ -123,9 +136,11 @@ async function resetPassword(user, hash) {
   await db.collection("Users").updateOne(query, newval);
 }
 
-//testResetPassword("6048eaef45189a18f94be8e7", "PasswordNEW")
+//testResetPassword("6048eaef45189a18f94be8e7", "PasswordNEW3")
 async function testResetPassword(user, hash) {
-  await resetPassword(user, hash);
+  await initializeDatabase()
+  console.log(await resetPassword(user, hash));
+  await closeDatabase()
 }
 
 /*
@@ -154,7 +169,19 @@ async function testCreateGroup(user, name) {
  * Look up the name associated with a group ID. This is used for labeling notifications.
  */
 async function getGroupName(group) {
-  throw new RequestError('unimplemented: getGroupName');
+  const result = await db.collection("Groups").findOne({_id: ObjectId(group)});
+  if (result === null) {
+    return null;
+  }
+  return result.name;
+}
+
+//testGetGroupName("6048feb1aef9561a66eb4e65");
+async function testGetGroupName(group) {
+  await initializeDatabase();
+  const result = await getGroupName(group);
+  console.log(result);
+  await closeDatabase();
 }
 
 /*
@@ -293,9 +320,9 @@ async function setRole(user, group, targetUser, role) {
  * user cannot mute/unmute themselves, so also check that the two users are different. Throw a
  * RequestError if the request is invalid.
  */
-async function setMuted(user, group, targetUser, muted) {
-  throw new RequestError('unimplemented: setMuted');
-}
+ async function setMuted(user, group, targetUser, muted) {
+   throw new RequestError('unimplemented: setMuted');
+ }
 
 /*
  * Send a message in a chat in a group. Make sure that the user ID is part of the group, that
@@ -311,7 +338,24 @@ async function setMuted(user, group, targetUser, muted) {
  * Return the message ID of the newly added message.
  */
 async function sendMessage(user, group, chat, timestamp, contents) {
-  throw new RequestError('unimplemented: sendMessage');
+  const check = await db.collection("Groups").findOne({_id: ObjectId(group), "grpUsers.user": ObjectId(user), "grpUsers.muted": false, chats: ObjectId(chat)});
+  if (check === null) {
+    throw new RequestError('Group/User Retrieval error');
+  }
+  const maxId = await db.collection("Messages").find({chatId: ObjectId(chat)}, { projection: {_id:0, chatId: 0}}).sort({msgId:-1}).limit(1).toArray();
+  var newId = maxId[0].msgId + 1;
+
+  var newObj = {chatId: ObjectId(chat), userId: ObjectId(user), msgId: newId, msg: contents, time: timestamp};
+  const result = await db.collection("Messages").insertOne(newObj);
+  return result.insertedId.toHexString();
+}
+
+//testSendMessage("6048ea6f9a2bd518ec8ba0a9", "6048f0f457d365977091d97a", "604937569532dadd6ce5ad05", 0, "testmsg");
+async function testSendMessage(user, group, chat, timestamp, contents) {
+  await initializeDatabase();
+  const result = await sendMessage(user, group, chat, timestamp, contents);
+  console.log(result);
+  await closeDatabase();
 }
 
 /*
@@ -332,7 +376,32 @@ async function sendMessage(user, group, chat, timestamp, contents) {
  * }
  */
 async function getMessages(user, group, chat, after, before) {
-  throw new RequestError('unimplemented: getMessages');
+  const result = await db.collection("Groups").findOne({_id: ObjectId(group), "grpUsers.user": ObjectId(user), chats: ObjectId(chat)});
+  if (result === null) {
+    throw new RequestError('Group/User Retrieval error');
+  }
+
+  const result2 = await db.collection("Messages").find({chatId: ObjectId(chat), msgId: {$gt: after, $lt: before}}, { projection: {_id:0, chatId: 0}}).toArray();
+  var i;
+  for(i = 0; i < result2.length; i++) {
+    result2[i].id = result2[i]['msgId'];
+    result2[i].sender = result2[i]['userId'];
+    result2[i].timestamp = result2[i]['time'];
+    result2[i].contents = result2[i]['msg'];
+    delete result2[i].msgId;
+    delete result2[i].userId;
+    delete result2[i].time;
+    delete result2[i].msg;
+}
+  return result2;
+}
+
+//testGetMessages("6048ea6f9a2bd518ec8ba0a9", "6048f0f457d365977091d97a", "604937569532dadd6ce5ad05", 0, 6);
+async function testGetMessages(user, group, chat, after, before) {
+  await initializeDatabase();
+  const result = await getMessages(user, group, chat, after, before);
+  console.log(result);
+  await closeDatabase();
 }
 
 module.exports = {
