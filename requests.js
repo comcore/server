@@ -1,3 +1,12 @@
+var MongoClient = require('mongodb').MongoClient;
+var ObjectId = require('mongodb').ObjectId;
+var Server = require('mongodb').Server;
+
+//Local URL
+const url = "mongodb://localhost:29651";
+//Server URL
+//const url = "mongodb://localhost:27017";
+
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
  * should have been checked by the client beforehand). The server will forward the error message to
@@ -11,10 +20,42 @@ class RequestError extends Error {
 }
 
 /*
+ * Connections to the database which are initialized by initializeDatabase().
+ */
+let mongoClient;
+let db;
+
+/*
  * Function that is called when the server is starting to initialize the database.
  */
-function initializeDatabase() {
-  // TODO put any initialization code here and it will be called when the server is starting
+async function initializeDatabase() {
+  if (mongoClient && db) {
+    return;
+  }
+
+  // Create a MongoClient object
+  mongoClient = new MongoClient(url, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  });
+
+  // Connect to the database
+  await mongoClient.connect();
+
+  // Retrieve the production database object
+  db = mongoClient.db('ComcoreProd');
+}
+
+/*
+ * Function that is called when the server is stopping to close the database.
+ */
+async function closeDatabase() {
+  db = undefined;
+
+  if (mongoClient) {
+    mongoClient.close();
+    mongoClient = undefined;
+  }
 }
 
 /*
@@ -27,7 +68,16 @@ function initializeDatabase() {
  * }
  */
 async function lookupAccount(email) {
-  throw new RequestError('unimplemented: lookupAccount');
+  const result = await db.collection("Users").findOne({emailAdr: email});
+  if (result === null) {
+    return null;
+  }
+
+  return {
+    id: result._id.toHexString(),
+    name: result.name,
+    hash: result.pass,
+  };
 }
 
 /*
@@ -36,21 +86,42 @@ async function lookupAccount(email) {
  * newly created user.
  */
 async function createAccount(name, email, hash) {
-  throw new RequestError('unimplemented: createAccount');
+  var alreadyAcct = await lookupAccount(email);
+  if (alreadyAcct !== null) {
+    return null;
+  }
+
+  var newObj = {emailAdr: email, name: name, pass: hash, groups: []};
+  const result = await db.collection("Users").insertOne(newObj);
+  return result.insertedId.toHexString();
 }
 
 /*
  * Look up the name associated with a user ID. This is used for labeling notifications.
  */
 async function getUserName(user) {
-  throw new RequestError('unimplemented: getUserName');
+  const result = await db.collection("Users").findOne({_id: ObjectId(user)});
+  if (result === null) {
+    return null;
+  }
+  return result.name;
+}
+
+//testGetUserName("6048eaef45189a18f94be8e7");
+async function testGetUserName(user) {
+  await initializeDatabase();
+  const result = await getUserName(user);
+  console.log(result);
+  await closeDatabase();
 }
 
 /*
  * Reset the password of an account specified by a user ID to have the provided hashed password.
  */
 async function resetPassword(user, hash) {
-  throw new RequestError('unimplemented: resetPassword');
+  var query = { _id: ObjectId(user) };
+  var newval = { $set: {pass: hash} };
+  await db.collection("Users").updateOne(query, newval);
 }
 
 /*
@@ -58,14 +129,40 @@ async function resetPassword(user, hash) {
  * the newly created group.
  */
 async function createGroup(user, name) {
-  throw new RequestError('unimplemented: createGroup');
+  const newGrpUsr = {user: ObjectId(user), role: "owner", muted: false};
+  const newGrp = {name: name, grpUsers: [newGrpUsr], chats: []};
+  const result = await db.collection("Groups")
+    .insertOne(newGrp);
+
+  const id = result.insertedId;
+  await db.collection("Users")
+    .updateOne({ _id: ObjectId(user) }, { $push: {groups: id} });
+
+  return id.toHexString();
 }
 
 /*
- * Look up the name associated with a group ID. This is used for labeling notifications.
+ * Look up the role and muted status of a user within a group.
  */
-async function getGroupName(group) {
-  throw new RequestError('unimplemented: getGroupName');
+async function getGroupUserData(user, group) {
+  const result = await db.collection("Groups")
+    .aggregate([
+      { $match: { _id: ObjectId(group) } },
+      { $project: {
+        _id: 0,
+        grpUsers: { $filter: {
+          input: '$grpUsers',
+          cond: { $eq: ['$$this.user', ObjectId(user)] },
+        }}
+      }}
+    ]);
+
+  const userData = await result.next();
+  if (userData === null) {
+    throw new RequestError('user not in group');
+  }
+
+  return userData.grpUsers[0];
 }
 
 /*
@@ -79,7 +176,39 @@ async function getGroupName(group) {
  * }
  */
 async function getGroups(user) {
-  throw new RequestError('unimplemented: getGroups');
+  const groups = await db.collection("Groups")
+    .find({ grpUsers: { $elemMatch: { user: ObjectId(user) } } })
+    .project({ grpUsers: 1 })
+    .toArray();
+
+  return groups.map(group => {
+    const userData = group.grpUsers
+      .find(userData => userData.user.toHexString() === user);
+
+    return {
+      id: group._id.toHexString(),
+      name: group.name,
+      role: userData.role,
+      muted: userData.muted,
+    }
+  });
+}
+
+/*
+ * Make sure the user is part of the group.
+ */
+async function checkUserInGroup(user, group) {
+  const query = {
+    _id: ObjectId(group),
+    grpUsers: { $elemMatch: { user: ObjectId(user) } } ,
+  };
+
+  const matching = await db.collection("Groups")
+    .findOne(query, { projection: { _id: 1 } });
+
+  if (!matching) {
+    throw new RequestError('group does not exist');
+  }
 }
 
 /*
@@ -88,7 +217,16 @@ async function getGroups(user) {
  * Return the chat ID of the new chat.
  */
 async function createChat(user, group, name) {
-  throw new RequestError('unimplemented: createChat');
+  await checkUserInGroup(user, group);
+
+  const result = await db.collection("Chats")
+    .insertOne({groupId: ObjectId(group), name });
+
+  const id = result.insertedId;
+  await db.collection("Groups")
+    .updateOne({ _id: ObjectId(group) }, { $push: {chats: id} });
+
+  return id.toHexString();
 }
 
 /*
@@ -104,7 +242,26 @@ async function createChat(user, group, name) {
  * }
  */
 async function getUsers(user, group) {
-  throw new RequestError('unimplemented: getUsers');
+  await checkUserInGroup(user, group);
+
+  const result = await db.collection("Groups")
+    .findOne({ _id: ObjectId(group) }, { projection: { _id: 0, grpUsers: 1 } });
+
+  // Lookup the name for each user separately (this could probably be done better?)
+  const users = [];
+  for (const userEntry of result.grpUsers) {
+    const userData = await db.collection("Users")
+      .findOne({ _id: userEntry.user }, { projection: { _id: 0, name: 1 } });
+
+    users.push({
+      id: userEntry.user.toHexString(),
+      name: userData.name,
+      role: userEntry.role,
+      muted: userEntry.muted,
+    });
+  }
+
+  return users;
 }
 
 /*
@@ -118,16 +275,95 @@ async function getUsers(user, group) {
  * }
  */
 async function getChats(user, group) {
-  throw new RequestError('unimplemented: getChats');
+  await checkUserInGroup(user, group);
+
+  const chats = await db.collection("Chats")
+    .find({ groupId: ObjectId(group) })
+    .project({ name: 1 })
+    .toArray();
+
+  return chats.map(chat => ({
+    id: chat._id.toHexString(),
+    name: chat.name,
+  }));
+}
+
+/*
+ * Get the role of a user in a group.
+ */
+async function getRole(user, group) {
+  const userData = await getGroupUserData(user, group);
+  return userData.role;
+}
+
+/*
+ * Make sure the role string corresponds to a valid role.
+ */
+function checkValidRole(role) {
+  if (!['owner', 'moderator', 'user'].includes(role)) {
+    throw new RequestError('invalid role');
+  }
+}
+
+/*
+ * Check if a user can affect another user's status based on their roles.
+ */
+function canAffect(userRole, targetRole) {
+  if (userRole === 'owner') {
+    return true;
+  }
+
+  if (targetRole === 'owner') {
+    return false;
+  }
+
+  return userRole === 'moderator';
 }
 
 /*
  * Send an invite to another user to join a group. Make sure that the user has 'moderator' or
  * 'owner' status and that the target user is not already in the group. Throw a RequestError if the
- * request is invalid.
+ * request is invalid. Returns the invitation as described in getInvites(), or null if already
+ * invited to the group.
  */
 async function sendInvite(user, group, targetUser) {
-  throw new RequestError('unimplemented: sendInvite');
+  // Make sure the user has permission to send invites
+  const role = await getRole(user, group);
+  if (!canAffect(role, 'user')) {
+    throw new RequestError('only moderators can send group invitations');
+  }
+
+  // Get the group's name iff the targetUser isn't in the group
+  const groupId = ObjectId(group);
+  const targetId = ObjectId(targetUser);
+  const query = {
+    _id: groupId,
+    grpUsers: { $not: { $elemMatch: { user: targetId } } },
+  };
+  const groupResult = await db.collection("Groups")
+    .findOne(query, { projection: { _id: 0, name: 1 } });
+
+  if (!groupResult) {
+    throw new RequestError('target user is already a member of the group');
+  }
+
+  // Check if the user has already been invited
+  const invite = await db.collection("Invites")
+    .findOne({ user: ObjectId(user), group: groupId });
+
+  if (invite) {
+    return null;
+  }
+
+  // Get the names to store with the invitation
+  const groupName = groupResult.name;
+  const inviter = await getUserName(user);
+
+  // Add the invitation to the database
+  await db.collection("Invites")
+    .insertOne({ user: targetId, group: groupId, groupName, inviter });
+
+  return { id: group, name: groupName, inviter };
 }
 
 /*
@@ -140,7 +376,15 @@ async function sendInvite(user, group, targetUser) {
  * }
  */
 async function getInvites(user) {
-  throw new RequestError('unimplemented: getInvites');
+  const invites = await db.collection("Invites")
+    .find({ user: ObjectId(user) })
+    .toArray();
+
+  return invites.map(invite => ({
+    id: invite.group.toHexString(),
+    name: invite.groupName,
+    inviter: invite.inviter,
+  }));
 }
 
 /*
@@ -148,14 +392,66 @@ async function getInvites(user) {
  * the group. Otherwise, just remove the invitation and don't add them to any group.
  */
 async function replyToInvite(user, group, accept) {
-  throw new RequestError('unimplemented: replyToInvite');
+  // Remove the invite from the invitations list
+  const userId = ObjectId(user);
+  const groupId = ObjectId(group);
+  const result = await db.collection("Invites")
+    .deleteOne({ user: userId, group: groupId });
+
+  if (accept && result.deletedCount === 1) {
+    // Add the user to the group
+    const userData = { user: userId, role: 'user', muted: false };
+    await db.collection("Groups")
+      .updateOne({ _id: groupId }, { $push: { grpUsers: userData } });
+
+    // Add the group to the user
+    await db.collection("Users")
+      .updateOne({ _id: userId }, { $push: {groups: groupId} });
+  }
 }
 
 /*
  * Remove the user from the group.
  */
+async function removeFromGroup(user, group) {
+  const userId = ObjectId(user);
+  const groupId = ObjectId(group);
+
+  // Remove the user from the group
+  await db.collection("Groups")
+    .updateOne({ _id: groupId }, { $pull: { grpUsers: { user: userId } } });
+
+  // Remove the group from the user
+  await db.collection("Users")
+    .updateOne({ _id: userId }, { $pull: {groups: groupId} });
+}
+
+/*
+ * Have the user leave the group. Make sure that the user isn't the owner of the group, since all
+ * groups must have an owner. Throw a RequestError if the request is invalid.
+ */
 async function leaveGroup(user, group) {
-  throw new RequestError('unimplemented: leaveGroup');
+  const role = await getRole(user, group);
+  if (role === 'owner') {
+    throw new RequestError('owner cannot leave the group');
+  }
+
+  await removeFromGroup(user, group);
+}
+
+/*
+ * Make sure that the user has permission in the group to do an action to a target user. Returns the
+ * permissions of the two users in a 2-element array.
+ */
+async function permissionCheck(user, group, targetUser, action) {
+  const userRole = await getRole(user, group);
+  const targetRole = await getRole(targetUser, group);
+
+  if (!canAffect(userRole, targetRole)) {
+    throw new RequestError(`${userRole} cannot ${action} ${targetRole}`);
+  }
+
+  return [userRole, targetRole];
 }
 
 /*
@@ -164,9 +460,8 @@ async function leaveGroup(user, group) {
  * same as leaveGroup(), just with an additional check to make sure the user has permission.
  */
 async function kick(user, group, targetUser) {
-  // TODO Implement logic to make sure the user has permission to kick the target user
-
-  await leaveGroup(targetUser, group);
+  await permissionCheck(user, group, targetUser, 'kick');
+  await removeFromGroup(targetUser, group);
 }
 
 /*
@@ -177,6 +472,7 @@ async function kick(user, group, targetUser) {
  * check that the two users are different. Throw a RequestError if the request is invalid.
  */
 async function setRole(user, group, targetUser, role) {
+  await permissionCheck(user, group, targetUser, 'set role of');
   throw new RequestError('unimplemented: setRole');
 }
 
@@ -187,6 +483,7 @@ async function setRole(user, group, targetUser, role) {
  * RequestError if the request is invalid.
  */
 async function setMuted(user, group, targetUser, muted) {
+  await permissionCheck(user, group, targetUser, 'mute/unmute');
   throw new RequestError('unimplemented: setMuted');
 }
 
@@ -204,7 +501,24 @@ async function setMuted(user, group, targetUser, muted) {
  * Return the message ID of the newly added message.
  */
 async function sendMessage(user, group, chat, timestamp, contents) {
-  throw new RequestError('unimplemented: sendMessage');
+  const check = await db.collection("Groups").findOne({_id: ObjectId(group), "grpUsers.user": ObjectId(user), "grpUsers.muted": false, chats: ObjectId(chat)});
+  if (check === null) {
+    throw new RequestError('Group/User Retrieval error');
+  }
+  const maxId = await db.collection("Messages").find({chatId: ObjectId(chat)}, { projection: {_id:0, chatId: 0}}).sort({msgId:-1}).limit(1).toArray();
+  var newId = maxId[0].msgId + 1;
+
+  var newObj = {chatId: ObjectId(chat), userId: ObjectId(user), msgId: newId, msg: contents, time: timestamp};
+  const result = await db.collection("Messages").insertOne(newObj);
+  return result.insertedId.toHexString();
+}
+
+//testSendMessage("6048ea6f9a2bd518ec8ba0a9", "6048f0f457d365977091d97a", "604937569532dadd6ce5ad05", 0, "testmsg");
+async function testSendMessage(user, group, chat, timestamp, contents) {
+  await initializeDatabase();
+  const result = await sendMessage(user, group, chat, timestamp, contents);
+  console.log(result);
+  await closeDatabase();
 }
 
 /*
@@ -225,18 +539,43 @@ async function sendMessage(user, group, chat, timestamp, contents) {
  * }
  */
 async function getMessages(user, group, chat, after, before) {
-  throw new RequestError('unimplemented: getMessages');
+  const result = await db.collection("Groups").findOne({_id: ObjectId(group), "grpUsers.user": ObjectId(user), chats: ObjectId(chat)});
+  if (result === null) {
+    throw new RequestError('Group/User Retrieval error');
+  }
+
+  const result2 = await db.collection("Messages").find({chatId: ObjectId(chat), msgId: {$gt: after, $lt: before}}, { projection: {_id:0, chatId: 0}}).toArray();
+  var i;
+  for(i = 0; i < result2.length; i++) {
+    result2[i].id = result2[i]['msgId'];
+    result2[i].sender = result2[i]['userId'];
+    result2[i].timestamp = result2[i]['time'];
+    result2[i].contents = result2[i]['msg'];
+    delete result2[i].msgId;
+    delete result2[i].userId;
+    delete result2[i].time;
+    delete result2[i].msg;
+}
+  return result2;
+}
+
+//testGetMessages("6048ea6f9a2bd518ec8ba0a9", "6048f0f457d365977091d97a", "604937569532dadd6ce5ad05", 0, 6);
+async function testGetMessages(user, group, chat, after, before) {
+  await initializeDatabase();
+  const result = await getMessages(user, group, chat, after, before);
+  console.log(result);
+  await closeDatabase();
 }
 
 module.exports = {
   RequestError,
   initializeDatabase,
+  closeDatabase,
   lookupAccount,
   createAccount,
   getUserName,
   resetPassword,
   createGroup,
-  getGroupName,
   getGroups,
   createChat,
   getUsers,

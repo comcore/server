@@ -287,15 +287,14 @@ class StateLoggedIn {
           return { sent: false };
         }
 
-        // Get the names of the inviter and the group
-        const inviter = await requests.getUserName(this.user);
-        const name = await requests.getGroupName(group);
+        // Send the user the invite and get the invitation
+        const invite = await requests.sendInvite(this.user, group, target.id);
 
-        // Record the invite for the user in the group
-        await requests.sendInvite(this.user, group, target.id);
+        // Also notify the target user that they received an invitation, if not already notified
+        if (invite) {
+          server.forward(target.id, 'invite', invite);
+        }
 
-        // Also notify the target user that they received an invitation
-        server.forward(target.id, 'invite', { id: group, name, inviter });
         return { sent: true };
       }
 
@@ -373,11 +372,11 @@ class StateLoggedIn {
         };
 
         // Also notify every user in the group of the new message, except for the one that sent it
-        chatUsers.forEach(chatUser => {
+        for (const chatUser of chatUsers) {
           if (chatUser.id !== this.user) {
             server.forward(chatUser.id, 'message', message);
           }
-        });
+        }
 
         return {};
       }
@@ -433,11 +432,11 @@ class Connection {
       const lines = this.lineBuffer.split(/\r?\n/);
       this.lineBuffer = lines.pop();
 
-      lines.forEach(line => {
+      for (const line of lines) {
         if (line) {
           this.waitingRequests.push(line);
         }
-      });
+      }
 
       this.handleRequests().catch(err => {
         console.error(err);
@@ -603,7 +602,9 @@ class Server {
   stop() {
     if (this.server) {
       this.server.close();
-      this.connections.forEach(connection => connection.stop());
+      for (const connection of this.connections) {
+        connection.stop();
+      }
     }
   }
 
@@ -641,11 +642,11 @@ class Server {
       return;
     }
 
-    connections.forEach(connection => {
+    for (const connection of connections) {
       if (connection !== exceptFor) {
         connection.forceLogout();
       }
-    });
+    }
   }
 
   /*
@@ -657,25 +658,45 @@ class Server {
       return;
     }
 
-    connections.forEach(connection => {
+    for (const connection of connections) {
       connection.send(kind, data);
-    });
+    }
   }
 }
 
-// Create a server object in case it is needed during initialization
+/*
+ * The singleton instance of the Server class which is used for managing connections.
+ */
 const server = new Server();
 
-// Initialize the database
-// TODO if the initializeDatabase() function is moved to just be executed when the module loads,
-// then this call can be removed. This might be simpler since the database connection variable must
-// be shared between calls anyway.
-requests.initializeDatabase?.();
+/*
+ * Initialize the database asynchronously before starting the server.
+ */
+async function init() {
+  try {
+    await requests.initializeDatabase();
+    server.start();
+  } catch (err) {
+    console.error(err);
+    await stop();
+  }
+}
 
-// Add a handler for SIGINT so the server stops gracefully
-process.on('SIGINT', () => {
-  server.stop();
-});
+/*
+ * Stop the server before asynchronously closing the database.
+ */
+async function stop() {
+  try {
+    server.stop();
+    await requests.closeDatabase();
+  } catch (err) {
+    console.error(err);
+  }
+}
 
-// Start the server
-server.start();
+
+// Add a handler for SIGINT to stop everything gracefully when exiting
+process.on('SIGINT', stop);
+
+// Start running everything
+init();
