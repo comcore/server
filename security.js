@@ -264,7 +264,7 @@ class CodeManager {
     // Create a new account with the requested info and return the ID if it succeeds
     const id = await requests.createAccount(account.name, email, account.hash);
     if (id) {
-      return id;
+      return { id, name: account.name };
     } else {
       throw new RequestError('account already exists');
     }

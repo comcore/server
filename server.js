@@ -19,7 +19,7 @@ const logoutMessages = ['login', 'createAccount', 'requestReset', 'logout'];
 class UnauthorizedError extends RequestError {
   constructor() {
     super('unauthorized');
-    this.name = "UnauthorizedError";
+    this.name = 'UnauthorizedError';
   }
 }
 
@@ -62,7 +62,7 @@ class StateLoggedOut {
 
         // Transition to the logged in state
         this.connection.setState(
-          new StateLoggedIn(this.connection, account.id));
+          new StateLoggedIn(this.connection, account.id, account.name));
 
         return { status: 'SUCCESS' };
       }
@@ -146,29 +146,34 @@ class StateConfirmEmail {
 
         // Finish the corresponding action for the ConfirmKind
         switch (this.confirmKind) {
-          case ConfirmKind.newAccount:
-            // Finish account creation and return the user ID
-            const id = await server.codeManager.finishCreation(this.email);
+          case ConfirmKind.newAccount: {
+            // Finish account creation and return the user ID and name
+            const { id, name } = await server.codeManager.finishCreation(this.email);
 
             // Transition to the logged in state
             this.connection.setState(
-              new StateLoggedIn(this.connection, id));
+              new StateLoggedIn(this.connection, id, name));
 
             break;
+          }
 
-          case ConfirmKind.twoFactor:
+          case ConfirmKind.twoFactor: {
             // Transition to the logged in state
+            const name = await requests.getUserName(codeData);
+
             this.connection.setState(
-              new StateLoggedIn(this.connection, codeData));
+              new StateLoggedIn(this.connection, codeData, name));
 
             break;
+          }
 
-          case ConfirmKind.resetPassword:
+          case ConfirmKind.resetPassword: {
             // Transition to the reset password state
             this.connection.setState(
               new StateResetPassword(this.connection, codeData));
 
             break;
+          }
         }
 
         return { correct: true };
@@ -200,8 +205,10 @@ class StateResetPassword {
         server.forceLogout(this.user, this);
 
         // Transition to the logged in state
+        const name = await requests.getUserName(this.user);
+
         this.connection.setState(
-          new StateLoggedIn(this.connection, this.user));
+          new StateLoggedIn(this.connection, this.user, name));
 
         return { reset: true };
       default:
@@ -214,9 +221,10 @@ class StateResetPassword {
  * The login state corresponding to logged in user.
  */
 class StateLoggedIn {
-  constructor(connection, user) {
+  constructor(connection, user, name) {
     this.connection = connection;
     this.user = user;
+    this.name = name;
   }
 
   /*
@@ -224,6 +232,7 @@ class StateLoggedIn {
    */
   start() {
     server.loginConnection(this.connection, this.user);
+    this.connection.send('setName', { name: this.name });
   }
 
   /*

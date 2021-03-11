@@ -16,7 +16,7 @@ const url = "mongodb://localhost:27017";
 class RequestError extends Error {
   constructor(message) {
     super(message);
-    this.name = "RequestError";
+    this.name = 'RequestError';
   }
 }
 
