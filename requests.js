@@ -28,6 +28,10 @@ let db;
  * Function that is called when the server is starting to initialize the database.
  */
 async function initializeDatabase() {
+  if (mongoClient && db) {
+    return;
+  }
+
   // Create a MongoClient object
   mongoClient = new MongoClient(url, {
     useNewUrlParser: true,
@@ -75,16 +79,6 @@ async function lookupAccount(email) {
   };
 }
 
-//testLookupAccount("neel.lingam@gmail.com")
-function testLookupAccount(email) {
-  lookupAccount(email)
-    .then(result => console.log(result))
-    .catch(err => console.log(err))
-  lookupAccount("------")
-    .then(result => console.log(result))
-    .catch(err => console.log(err))
-}
-
 /*
  * Create a new account with an associated name, email address, and hashed password. If an account
  * with the given email address already exists, return null. Otherwise return the user ID of the
@@ -96,15 +90,9 @@ async function createAccount(name, email, hash) {
     return null;
   }
 
-  var newObj = {emailAdr: email, name: name, pass: hash};
+  var newObj = {emailAdr: email, name: name, pass: hash, groups: []};
   const result = await db.collection("Users").insertOne(newObj);
   return result.insertedId.toHexString();
-}
-
-//testCreateAccount("Test2 Person", "test2@gmail.com", "newPassword")
-async function testCreateAccount(name, email, hash) {
-  const result = await createAccount(name, email, hash);
-  console.log(result);
 }
 
 /*
@@ -123,31 +111,21 @@ async function resetPassword(user, hash) {
   await db.collection("Users").updateOne(query, newval);
 }
 
-//testResetPassword("6048eaef45189a18f94be8e7", "PasswordNEW")
-async function testResetPassword(user, hash) {
-  await resetPassword(user, hash);
-}
-
 /*
  * Create a new group owned by the specified user ID with the given name. Return the group ID of
  * the newly created group.
  */
 async function createGroup(user, name) {
-  var newGrpUsr = {user: ObjectId(user), role: "owner", muted: false};
-  var newGrp = {name: name, grpUsers: [newGrpUsr]};
-  const result = await db.collection("Groups").insertOne(newGrp);
+  const newGrpUsr = {user: ObjectId(user), role: "owner", muted: false};
+  const newGrp = {name: name, grpUsers: [newGrpUsr], chats: []};
+  const result = await db.collection("Groups")
+    .insertOne(newGrp);
 
-  var query = { _id: ObjectId(user) };
-  var newval = { $push: {groups: ObjectId(result.insertedId.toHexString())} };
-  await db.collection("Users").updateOne(query, newval);
+  const id = result.insertedId;
+  await db.collection("Users")
+    .updateOne({ _id: ObjectId(user) }, { $push: {groups: id} });
 
-  return result.insertedId.toHexString();
-}
-
-//testCreateGroup("6048eaef45189a18f94be8e7", "test1 Group")
-async function testCreateGroup(user, name) {
-  const result = await createGroup(user, name);
-  console.log(result)
+  return id.toHexString();
 }
 
 /*
@@ -155,6 +133,30 @@ async function testCreateGroup(user, name) {
  */
 async function getGroupName(group) {
   throw new RequestError('unimplemented: getGroupName');
+}
+
+/*
+ * Look up the role and muted status of a user within a group.
+ */
+async function getGroupUserData(user, group) {
+  const result = await db.collection("Groups")
+    .aggregate([
+      { $match: { _id: ObjectId(group) } },
+      { $project: {
+        _id: 0,
+        grpUsers: { $filter: {
+          input: '$grpUsers',
+          cond: { $eq: ['$$this.user', ObjectId(user)] },
+        }}
+      }}
+    ]);
+
+  const userData = await result.next();
+  if (userData === null) {
+    throw new RequestError('user not in group');
+  }
+
+  return userData.grpUsers[0];
 }
 
 /*
@@ -168,26 +170,40 @@ async function getGroupName(group) {
  * }
  */
 async function getGroups(user) {
-  throw new RequestError('unimplemented: getGroups');
-}
-//async function getGroups(user) {
-//  const result = await db.collection("Groups")
-//    .find({"grpUsers.user": {$eq: ObjectId(user)}}, { projection: { _id: 0, name: 0} });
-//  console.log(result)
-//  //return {
-//  //     id: result._id.toHexString(),
-//  //     name: result.name,
-//  //     role: result.role,
-//  //     muted: result.muted,
-//  //   };
-//}
+  const groups = await db.collection("Groups")
+    .find({ grpUsers: { $elemMatch: { user: ObjectId(user) } } })
+    .project({ grpUsers: 1 })
+    .toArray();
 
-//testGetGroups("6047c3b2b8a960554f0ece18")
-//function testGetGroups(user) {
-// getGroups(user)
-//  .then(result => console.log(result))
-//  .catch(err => console.log(err))
-//}
+  return groups.map(group => {
+    const userData = group.grpUsers
+      .find(userData => userData.user.toHexString() === user);
+
+    return {
+      id: group._id.toHexString(),
+      name: group.name,
+      role: userData.role,
+      muted: userData.muted,
+    }
+  });
+}
+
+/*
+ * Make sure the user is part of the group.
+ */
+async function checkUserInGroup(user, group) {
+  const query = {
+    _id: ObjectId(group),
+    grpUsers: { $elemMatch: { user: ObjectId(user) } } ,
+  };
+
+  const matching = await db.collection("Groups")
+    .findOne(query, { projection: { _id: 1 } });
+
+  if (!matching) {
+    throw new RequestError('group does not exist');
+  }
+}
 
 /*
  * Create a new chat in the given group ID with the given name. Make sure that the user ID is part
@@ -195,7 +211,16 @@ async function getGroups(user) {
  * Return the chat ID of the new chat.
  */
 async function createChat(user, group, name) {
+  await checkUserInGroup(user, group);
 
+  const result = await db.collection("Chats")
+    .insertOne({groupId: ObjectId(group), name });
+
+  const id = result.insertedId;
+  await db.collection("Groups")
+    .updateOne({ _id: ObjectId(group) }, { $push: {chats: id} });
+
+  return id.toHexString();
 }
 
 /*
@@ -211,7 +236,26 @@ async function createChat(user, group, name) {
  * }
  */
 async function getUsers(user, group) {
-  throw new RequestError('unimplemented: getUsers');
+  await checkUserInGroup(user, group);
+
+  const result = await db.collection("Groups")
+    .findOne({ _id: ObjectId(group) }, { projection: { _id: 0, grpUsers: 1 } });
+
+  // Lookup the name for each user separately (this could probably be done better?)
+  const users = [];
+  for (const userEntry of result.grpUsers) {
+    const userData = await db.collection("Users")
+      .findOne({ _id: userEntry.user }, { projection: { _id: 0, name: 1 } });
+
+    users.push({
+      id: userEntry.user.toHexString(),
+      name: userData.name,
+      role: userEntry.role,
+      muted: userEntry.muted,
+    });
+  }
+
+  return users;
 }
 
 /*
@@ -225,16 +269,95 @@ async function getUsers(user, group) {
  * }
  */
 async function getChats(user, group) {
-  throw new RequestError('unimplemented: getChats');
+  await checkUserInGroup(user, group);
+
+  const chats = await db.collection("Chats")
+    .find({ groupId: ObjectId(group) })
+    .project({ name: 1 })
+    .toArray();
+
+  return chats.map(chat => ({
+    id: chat._id.toHexString(),
+    name: chat.name,
+  }));
+}
+
+/*
+ * Get the role of a user in a group.
+ */
+async function getRole(user, group) {
+  const userData = await getGroupUserData(user, group);
+  return userData.role;
+}
+
+/*
+ * Make sure the role string corresponds to a valid role.
+ */
+function checkValidRole(role) {
+  if (!['owner', 'moderator', 'user'].includes(role)) {
+    throw new RequestError('invalid role');
+  }
+}
+
+/*
+ * Check if a user can affect another user's status based on their roles.
+ */
+function canAffect(userRole, targetRole) {
+  if (userRole === 'owner') {
+    return true;
+  }
+
+  if (targetRole === 'owner') {
+    return false;
+  }
+
+  return userRole === 'moderator';
 }
 
 /*
  * Send an invite to another user to join a group. Make sure that the user has 'moderator' or
  * 'owner' status and that the target user is not already in the group. Throw a RequestError if the
- * request is invalid.
+ * request is invalid. Returns the invitation as described in getInvites(), or null if already
+ * invited to the group.
  */
 async function sendInvite(user, group, targetUser) {
-  throw new RequestError('unimplemented: sendInvite');
+  // Make sure the user has permission to send invites
+  const role = await getRole(user, group);
+  if (!canAffect(role, 'user')) {
+    throw new RequestError('only moderators can send group invitations');
+  }
+
+  // Get the group's name iff the targetUser isn't in the group
+  const groupId = ObjectId(group);
+  const targetId = ObjectId(targetUser);
+  const query = {
+    _id: groupId,
+    grpUsers: { $not: { $elemMatch: { user: targetId } } },
+  };
+  const groupResult = await db.collection("Groups")
+    .findOne(query, { projection: { _id: 0, name: 1 } });
+
+  if (!groupResult) {
+    throw new RequestError('target user is already a member of the group');
+  }
+
+  // Check if the user has already been invited
+  const invite = await db.collection("Invites")
+    .findOne({ user: ObjectId(user), group: groupId });
+
+  if (invite) {
+    return null;
+  }
+
+  // Get the names to store with the invitation
+  const groupName = groupResult.name;
+  const inviter = await getUserName(user);
+
+  // Add the invitation to the database
+  await db.collection("Invites")
+    .insertOne({ user: targetId, group: groupId, groupName, inviter });
+
+  return { id: group, name: groupName, inviter };
 }
 
 /*
@@ -247,7 +370,15 @@ async function sendInvite(user, group, targetUser) {
  * }
  */
 async function getInvites(user) {
-  throw new RequestError('unimplemented: getInvites');
+  const invites = await db.collection("Invites")
+    .find({ user: ObjectId(user) })
+    .toArray();
+
+  return invites.map(invite => ({
+    id: invite.group.toHexString(),
+    name: invite.groupName,
+    inviter: invite.inviter,
+  }));
 }
 
 /*
@@ -255,14 +386,66 @@ async function getInvites(user) {
  * the group. Otherwise, just remove the invitation and don't add them to any group.
  */
 async function replyToInvite(user, group, accept) {
-  throw new RequestError('unimplemented: replyToInvite');
+  // Remove the invite from the invitations list
+  const userId = ObjectId(user);
+  const groupId = ObjectId(group);
+  const result = await db.collection("Invites")
+    .deleteOne({ user: userId, group: groupId });
+
+  if (accept && result.deletedCount === 1) {
+    // Add the user to the group
+    const userData = { user: userId, role: 'user', muted: false };
+    await db.collection("Groups")
+      .updateOne({ _id: groupId }, { $push: { grpUsers: userData } });
+
+    // Add the group to the user
+    await db.collection("Users")
+      .updateOne({ _id: userId }, { $push: {groups: groupId} });
+  }
 }
 
 /*
  * Remove the user from the group.
  */
+async function removeFromGroup(user, group) {
+  const userId = ObjectId(user);
+  const groupId = ObjectId(group);
+
+  // Remove the user from the group
+  await db.collection("Groups")
+    .updateOne({ _id: groupId }, { $pull: { grpUsers: { user: userId } } });
+
+  // Remove the group from the user
+  await db.collection("Users")
+    .updateOne({ _id: userId }, { $pull: {groups: groupId} });
+}
+
+/*
+ * Have the user leave the group. Make sure that the user isn't the owner of the group, since all
+ * groups must have an owner. Throw a RequestError if the request is invalid.
+ */
 async function leaveGroup(user, group) {
-  throw new RequestError('unimplemented: leaveGroup');
+  const role = await getRole(user, group);
+  if (role === 'owner') {
+    throw new RequestError('owner cannot leave the group');
+  }
+
+  await removeFromGroup(user, group);
+}
+
+/*
+ * Make sure that the user has permission in the group to do an action to a target user. Returns the
+ * permissions of the two users in a 2-element array.
+ */
+async function permissionCheck(user, group, targetUser, action) {
+  const userRole = await getRole(user, group);
+  const targetRole = await getRole(targetUser, group);
+
+  if (!canAffect(userRole, targetRole)) {
+    throw new RequestError(`${userRole} cannot ${action} ${targetRole}`);
+  }
+
+  return [userRole, targetRole];
 }
 
 /*
@@ -271,9 +454,8 @@ async function leaveGroup(user, group) {
  * same as leaveGroup(), just with an additional check to make sure the user has permission.
  */
 async function kick(user, group, targetUser) {
-  // TODO Implement logic to make sure the user has permission to kick the target user
-
-  await leaveGroup(targetUser, group);
+  await permissionCheck(user, group, targetUser, 'kick');
+  await removeFromGroup(targetUser, group);
 }
 
 /*
