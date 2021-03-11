@@ -232,7 +232,7 @@ class StateLoggedIn {
    */
   start() {
     server.loginConnection(this.connection, this.user);
-    this.connection.send('setName', { name: this.name });
+    this.connection.send('setUser', { id: this.user, name: this.name });
   }
 
   /*
