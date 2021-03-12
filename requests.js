@@ -213,12 +213,54 @@ async function checkUserInGroup(user, group) {
 }
 
 /*
+ * Get the role of a user in a group.
+ */
+async function getRole(user, group) {
+  const userData = await getGroupUserData(user, group);
+  return userData.role;
+}
+
+/*
+ * Make sure the role string corresponds to a valid role.
+ */
+function checkValidRole(role) {
+  if (!['owner', 'moderator', 'user'].includes(role)) {
+    throw new RequestError('invalid role');
+  }
+}
+
+/*
+ * Check if a user can affect another user's status based on their roles.
+ */
+function canAffect(userRole, targetRole) {
+  if (userRole === 'owner') {
+    return true;
+  }
+
+  if (targetRole === 'owner') {
+    return false;
+  }
+
+  return userRole === 'moderator';
+}
+
+/*
+ * Check if the user is a moderator or owner in the group.
+ */
+async function checkModerator(user, group) {
+  const role = await getRole(user, group);
+  if (!canAffect(role, 'user')) {
+    throw new RequestError('user is not a moderator');
+  }
+}
+
+/*
  * Create a new chat in the given group ID with the given name. Make sure that the user ID is part
  * of the group before creating the chat, and throw a RequestError if they are not authorized.
  * Return the chat ID of the new chat.
  */
 async function createChat(user, group, name) {
-  await checkUserInGroup(user, group);
+  await checkModerator(user, group);
 
   const result = await db.collection("Chats")
     .insertOne({groupId: ObjectId(group), name });
@@ -290,48 +332,13 @@ async function getChats(user, group) {
 }
 
 /*
- * Get the role of a user in a group.
- */
-async function getRole(user, group) {
-  const userData = await getGroupUserData(user, group);
-  return userData.role;
-}
-
-/*
- * Make sure the role string corresponds to a valid role.
- */
-function checkValidRole(role) {
-  if (!['owner', 'moderator', 'user'].includes(role)) {
-    throw new RequestError('invalid role');
-  }
-}
-
-/*
- * Check if a user can affect another user's status based on their roles.
- */
-function canAffect(userRole, targetRole) {
-  if (userRole === 'owner') {
-    return true;
-  }
-
-  if (targetRole === 'owner') {
-    return false;
-  }
-
-  return userRole === 'moderator';
-}
-
-/*
  * Send an invite to another user to join a group. Make sure that the user has 'moderator' or
  * 'owner' status. Throw a RequestError if the request is invalid. Returns the invitation as
  * described in getInvites(), or null if already invited to the group or already in the group.
  */
 async function sendInvite(user, group, targetUser) {
   // Make sure the user has permission to send invites
-  const role = await getRole(user, group);
-  if (!canAffect(role, 'user')) {
-    throw new RequestError('only moderators can send group invitations');
-  }
+  await checkModerator(user, group);
 
   // Get the group's name iff the targetUser isn't in the group
   const groupId = ObjectId(group);
