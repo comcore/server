@@ -528,7 +528,10 @@ async function sendMessage(user, group, chat, timestamp, contents) {
     throw new RequestError('Group/User Retrieval error');
   }
   const maxId = await db.collection("Messages").find({chatId: ObjectId(chat)}, { projection: {_id:0, chatId: 0}}).sort({msgId:-1}).limit(1).toArray();
-  var newId = maxId[0].msgId + 1;
+  let newId = 1;
+  if (maxId.length !== 0) {
+    newId = maxId[0].msgId + 1;
+  }
 
   var newObj = {chatId: ObjectId(chat), userId: ObjectId(user), msgId: newId, msg: contents, time: timestamp};
   const result = await db.collection("Messages").insertOne(newObj);
@@ -566,7 +569,12 @@ async function getMessages(user, group, chat, after, before) {
     throw new RequestError('Group/User Retrieval error');
   }
 
-  const result2 = await db.collection("Messages").find({chatId: ObjectId(chat), msgId: {$gt: after, $lt: before}}, { projection: {_id:0, chatId: 0}}).toArray();
+  const result2 = await db.collection("Messages")
+    .find({chatId: ObjectId(chat), msgId: {$gt: after, $lt: before}}, { projection: {_id:0, chatId: 0}})
+    .sort({msgId: -1})
+    .limit(50)
+    .toArray();
+  result2.reverse();
   for (var i = 0; i < result2.length; i++) {
     result2[i].id = result2[i]['msgId'];
     result2[i].sender = result2[i]['userId'];
