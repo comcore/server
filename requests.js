@@ -477,6 +477,9 @@ async function setRole(user, group, targetUser, role) {
   }
   await permissionCheck(user, group, targetUser, 'set role of');
   await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.role" : role} } );
+  if (role == 'owner') {
+    await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(user) }, {$set : {"grpUsers.$.role" : 'moderator'} } );
+  }
 }
 
 //testSetRole("6047c3b2b8a960554f0ece18", "6048f0f457d365977091d97a", "6048ea6f9a2bd518ec8ba0a9", "moderator")
