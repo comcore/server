@@ -190,6 +190,12 @@ class CodeManager {
    * it was correct and null otherwise.
    */
   checkCode(email, kind, code) {
+    // If the code isn't the right number of digits, don't waste time checking
+    code = code.trim();
+    if (code.length != codeDigits) {
+      return null;
+    }
+
     // Make sure there is a code for this user
     const codeEntry = this.pendingCodes.get(email);
     if (!CodeManager.isValidCode(codeEntry, kind)) {
