@@ -75,9 +75,9 @@ async function testVerificationCodes() {
   assert(codeManager.checkCode('a', ConfirmKind.resetPassword, codeA));
 
   // Check that after 3 incorrect attempts, a valid code becomes unusable
-  assert(!codeManager.checkCode('b', ConfirmKind.twoFactor,     codeA));
-  assert(!codeManager.checkCode('b', ConfirmKind.twoFactor,     codeA));
-  assert(!codeManager.checkCode('b', ConfirmKind.twoFactor,     codeB));
+  assert(!codeManager.checkCode('b', ConfirmKind.twoFactor, codeA));
+  assert(!codeManager.checkCode('b', ConfirmKind.twoFactor, codeA));
+  assert(!codeManager.checkCode('b', ConfirmKind.twoFactor, codeB));
 }
 
 runTests().catch(err => console.error(err));
