@@ -179,7 +179,7 @@ async function getGroupUserData(user, group) {
 async function getGroups(user) {
   const groups = await db.collection("Groups")
     .find({ grpUsers: { $elemMatch: { user: ObjectId(user) } } })
-    .project({ grpUsers: 1 })
+    .project({ name: 1, grpUsers: 1 })
     .toArray();
 
   return groups.map(group => {
