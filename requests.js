@@ -323,9 +323,8 @@ function canAffect(userRole, targetRole) {
 
 /*
  * Send an invite to another user to join a group. Make sure that the user has 'moderator' or
- * 'owner' status and that the target user is not already in the group. Throw a RequestError if the
- * request is invalid. Returns the invitation as described in getInvites(), or null if already
- * invited to the group.
+ * 'owner' status. Throw a RequestError if the request is invalid. Returns the invitation as
+ * described in getInvites(), or null if already invited to the group or already in the group.
  */
 async function sendInvite(user, group, targetUser) {
   // Make sure the user has permission to send invites
@@ -345,7 +344,7 @@ async function sendInvite(user, group, targetUser) {
     .findOne(query, { projection: { _id: 0, name: 1 } });
 
   if (!groupResult) {
-    throw new RequestError('target user is already a member of the group');
+    return null;
   }
 
   // Check if the user has already been invited
