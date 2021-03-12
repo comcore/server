@@ -341,6 +341,9 @@ class StateLoggedIn {
         // Also notify the target user that their role has changed
         server.forward(target, 'roleChanged', { group, role });
 
+        // If it's an ownership transfer, notify the owner too
+        server.forward(this.user, 'roleChanged', { group, role: 'moderator' });
+
         return {};
       }
 
