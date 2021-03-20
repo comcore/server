@@ -544,8 +544,8 @@ async function sendMessage(user, group, chat, timestamp, contents) {
   }
 
   var newObj = {chatId: ObjectId(chat), userId: ObjectId(user), msgId: newId, msg: contents, time: timestamp};
-  const result = await db.collection("Messages").insertOne(newObj);
-  return result.insertedId.toHexString();
+  await db.collection("Messages").insertOne(newObj);
+  return newId;
 }
 
 //testSendMessage("6048ea6f9a2bd518ec8ba0a9", "6048f0f457d365977091d97a", "604937569532dadd6ce5ad05", 0, "testmsg");
