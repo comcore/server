@@ -606,6 +606,13 @@ async function testGetMessages(user, group, chat, after, before) {
   await closeDatabase();
 }
 
+async function createModule() {
+}
+async function getModules() {
+}
+async function getModuleInfo() {
+}
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -628,4 +635,7 @@ module.exports = {
   setMuted,
   sendMessage,
   getMessages,
+  createModule,
+  getModules,
+  getModuleInfo
 };
