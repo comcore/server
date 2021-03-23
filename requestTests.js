@@ -52,10 +52,18 @@ async function testCreateModule(user, group, name, type) {
   await requests.closeDatabase();
 }
 
-testGetModules("604a7dfc847fde3dfcf17d8d","604bd301fa461254ca56389a")
+//testGetModules("604a7dfc847fde3dfcf17d8d","604bd301fa461254ca56389a")
 async function testGetModules(user, group) {
   await requests.initializeDatabase();
   const result = await requests.getModules(user, group);
+  console.log(result);
+  await requests.closeDatabase();
+}
+
+testGetModuleInfo("604a7dfc847fde3dfcf17d8d","605a09b9cd109726ac198db4")
+async function testGetModuleInfo(user, module) {
+  await requests.initializeDatabase();
+  const result = await requests.getModuleInfo(user, module);
   console.log(result);
   await requests.closeDatabase();
 }
