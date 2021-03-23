@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29342";
+//const url = "mongodb://localhost:29699";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -623,19 +623,16 @@ async function getModules(user, group) {
  * }
  */
 async function getModuleInfo(user, module) {
+  const moduleRes = await db.collection("Modules")
+    .findOne({ _id: ObjectId(module) }, {projection: { groupId: 1, name: 1, type: 1 }});
 
-  // const modules = await db.collection("Modules")
-  //   .find({ _id: ObjectId(module) })
-  //   .project({ groupId: 1, name: 1, type: 1 })
-  //   .toArray();
-  //
-  // await checkUserInGroup(user, modules[0].groupId.toHexString());
-  //
-  // return modules[0].map(modules => ({
-  //   id: modules._id.toHexString(),
-  //   type: modules.type,
-  //   name: modules.name,
-  // }));
+  await checkUserInGroup(user, moduleRes.groupId.toHexString());
+
+  return {
+    id: moduleRes._id.toHexString(),
+    type: moduleRes.type,
+    name: moduleRes.name
+  };
 }
 
 module.exports = {
