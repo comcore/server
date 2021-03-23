@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-// const url = "mongodb://localhost:29651";
+//const url = "mongodb://localhost:29492";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -606,10 +606,46 @@ async function testGetMessages(user, group, chat, after, before) {
   await closeDatabase();
 }
 
-async function createModule() {
+/*
+ * Create a new module in the given group ID with the given name and module type. Make sure that the user ID is part
+ * of the group before creating the module, and throw a RequestError if they are not authorized.
+ * Return the module ID of the new module.
+ */
+async function createModule(user, group, name, type) {
+  await checkModerator(user, group);
+
+  const result = await db.collection("Modules")
+    .insertOne({groupId: ObjectId(group), type, name });
+
+  const id = result.insertedId;
+  await db.collection("Groups")
+    .updateOne({ _id: ObjectId(group) }, { $push: {modules: id} });
+
+  return id.toHexString();
 }
-async function getModules() {
+
+//testcreateModule("604a7dfc847fde3dfcf17d8d","604bd301fa461254ca56389a","Test Module", "chat")
+async function testcreateModule(user, group, name, type) {
+  await initializeDatabase();
+  const result = await createModule(user, group, name, type);
+  console.log(result);
+  await closeDatabase();
 }
+
+/*
+ * Get a list of the modules in a group. Make sure that the user ID is part of the group before
+ * creating the list, and throw a RequestError if they are not authorized. Each entry in the array
+ * should look like:
+ *
+ * {
+ *   id:   the ID of the chat,
+ *   name: the name of the chat,
+ * }
+ */
+async function getModules(user, group) {
+
+}
+
 async function getModuleInfo() {
 }
 
