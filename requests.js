@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29492";
+//const url = "mongodb://localhost:29342";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -624,8 +624,8 @@ async function createModule(user, group, name, type) {
   return id.toHexString();
 }
 
-//testcreateModule("604a7dfc847fde3dfcf17d8d","604bd301fa461254ca56389a","Test Module", "chat")
-async function testcreateModule(user, group, name, type) {
+//testCreateModule("604a7dfc847fde3dfcf17d8d","604bd301fa461254ca56389a","Test Module", "chat")
+async function testCreateModule(user, group, name, type) {
   await initializeDatabase();
   const result = await createModule(user, group, name, type);
   console.log(result);
@@ -638,12 +638,32 @@ async function testcreateModule(user, group, name, type) {
  * should look like:
  *
  * {
- *   id:   the ID of the chat,
- *   name: the name of the chat,
+ *   id:   the ID of the module,
+ *   type: the type of the module,
+ *   name: the name of the module,
  * }
  */
 async function getModules(user, group) {
+  await checkUserInGroup(user, group);
 
+  const modules = await db.collection("Modules")
+    .find({ groupId: ObjectId(group) })
+    .project({ name: 1, type: 1 })
+    .toArray();
+
+  return modules.map(modules => ({
+    id: modules._id.toHexString(),
+    type: modules.type,
+    name: modules.name,
+  }));
+}
+
+//testGetModules("604a7dfc847fde3dfcf17d8d","604bd301fa461254ca56389a")
+async function testGetModules(user, group) {
+  await initializeDatabase();
+  const result = await getModules(user, group);
+  console.log(result);
+  await closeDatabase();
 }
 
 async function getModuleInfo() {
