@@ -3,10 +3,10 @@ var ObjectId = require('mongodb').ObjectId;
 var Server = require('mongodb').Server;
 
 // Server URL
-//const url = "mongodb://localhost:27017";
+const url = "mongodb://localhost:27017";
 
 // Local URL
-const url = "mongodb://localhost:29342";
+//const url = "mongodb://localhost:29342";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -630,7 +630,7 @@ async function getModuleInfo(user, module) {
   //   .toArray();
   //
   // await checkUserInGroup(user, modules[0].groupId.toHexString());
-  // 
+  //
   // return modules[0].map(modules => ({
   //   id: modules._id.toHexString(),
   //   type: modules.type,
