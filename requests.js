@@ -3,10 +3,10 @@ var ObjectId = require('mongodb').ObjectId;
 var Server = require('mongodb').Server;
 
 // Server URL
-const url = "mongodb://localhost:27017";
+//const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29342";
+const url = "mongodb://localhost:29342";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -106,14 +106,6 @@ async function getUserName(user) {
     return null;
   }
   return result.name;
-}
-
-//testGetUserName("6048eaef45189a18f94be8e7");
-async function testGetUserName(user) {
-  await initializeDatabase();
-  const result = await getUserName(user);
-  console.log(result);
-  await closeDatabase();
 }
 
 /*
@@ -489,14 +481,6 @@ async function setRole(user, group, targetUser, role) {
   }
 }
 
-//testSetRole("6047c3b2b8a960554f0ece18", "6048f0f457d365977091d97a", "6048ea6f9a2bd518ec8ba0a9", "moderator")
-async function testSetRole(user, group, targetUser, muted) {
-  await initializeDatabase();
-  const result = await setRole(user, group, targetUser, muted);
-  //console.log(result);
-  await closeDatabase();
-}
-
 /*
  * Set the muted status of another user in a group. Make sure that both users are part of the group
  * and that 'user' has a more powerful role than 'targetUser' before setting the muted status. A
@@ -509,14 +493,6 @@ async function setMuted(user, group, targetUser, muted) {
   }
   await permissionCheck(user, group, targetUser, 'mute/unmute');
   await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.muted" : muted} } );
-}
-
-//testSetMuted("6047c3b2b8a960554f0ece18", "6048f0f457d365977091d97a", "6048ea6f9a2bd518ec8ba0a9", true)
-async function testSetMuted(user, group, targetUser, muted) {
-  await initializeDatabase();
-  const result = await setMuted(user, group, targetUser, muted);
-  //console.log(result);
-  await closeDatabase();
 }
 
 /*
@@ -546,14 +522,6 @@ async function sendMessage(user, group, chat, timestamp, contents) {
   var newObj = {chatId: ObjectId(chat), userId: ObjectId(user), msgId: newId, msg: contents, time: timestamp};
   await db.collection("Messages").insertOne(newObj);
   return newId;
-}
-
-//testSendMessage("6048ea6f9a2bd518ec8ba0a9", "6048f0f457d365977091d97a", "604937569532dadd6ce5ad05", 0, "testmsg");
-async function testSendMessage(user, group, chat, timestamp, contents) {
-  await initializeDatabase();
-  const result = await sendMessage(user, group, chat, timestamp, contents);
-  console.log(result);
-  await closeDatabase();
 }
 
 /*
@@ -598,13 +566,6 @@ async function getMessages(user, group, chat, after, before) {
   return result2;
 }
 
-//testGetMessages("6048ea6f9a2bd518ec8ba0a9", "6048f0f457d365977091d97a", "604937569532dadd6ce5ad05", 0, 6);
-async function testGetMessages(user, group, chat, after, before) {
-  await initializeDatabase();
-  const result = await getMessages(user, group, chat, after, before);
-  console.log(result);
-  await closeDatabase();
-}
 
 /*
  * Create a new module in the given group ID with the given name and module type. Make sure that the user ID is part
@@ -622,14 +583,6 @@ async function createModule(user, group, name, type) {
     .updateOne({ _id: ObjectId(group) }, { $push: {modules: id} });
 
   return id.toHexString();
-}
-
-//testCreateModule("604a7dfc847fde3dfcf17d8d","604bd301fa461254ca56389a","Test Module", "chat")
-async function testCreateModule(user, group, name, type) {
-  await initializeDatabase();
-  const result = await createModule(user, group, name, type);
-  console.log(result);
-  await closeDatabase();
 }
 
 /*
@@ -658,15 +611,31 @@ async function getModules(user, group) {
   }));
 }
 
-//testGetModules("604a7dfc847fde3dfcf17d8d","604bd301fa461254ca56389a")
-async function testGetModules(user, group) {
-  await initializeDatabase();
-  const result = await getModules(user, group);
-  console.log(result);
-  await closeDatabase();
-}
+/*
+ * Get a module in a group. Make sure that the user ID is part of the group before
+ * querying the DB, and throw a RequestError if they are not authorized. Each entry
+ * should look like:
+ *
+ * {
+ *   id:   the ID of the module,
+ *   type: the type of the module,
+ *   name: the name of the module,
+ * }
+ */
+async function getModuleInfo(user, module) {
 
-async function getModuleInfo() {
+  // const modules = await db.collection("Modules")
+  //   .find({ _id: ObjectId(module) })
+  //   .project({ groupId: 1, name: 1, type: 1 })
+  //   .toArray();
+  //
+  // await checkUserInGroup(user, modules[0].groupId.toHexString());
+  // 
+  // return modules[0].map(modules => ({
+  //   id: modules._id.toHexString(),
+  //   type: modules.type,
+  //   name: modules.name,
+  // }));
 }
 
 module.exports = {
