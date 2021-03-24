@@ -60,6 +60,18 @@ class StateLoggedOut {
           return { status: 'INVALID_PASSWORD' };
         }
 
+        // Check if the user has two-factor authentication enabled
+        if (account.twoFactor) {
+          // Send the confirmation code to their email
+          await server.codeManager.sendConfirmation(email, ConfirmKind.twoFactor, account.id);
+
+          // Transition to the confirm email state
+          this.connection.setState(
+            new StateConfirmEmail(this.connection, email, ConfirmKind.twoFactor));
+
+          return { status: 'ENTER_CODE' };
+        }
+
         // Transition to the logged in state
         this.connection.setState(
           new StateLoggedIn(this.connection, account.id, account.name));
@@ -244,6 +256,17 @@ class StateLoggedIn {
 
   async handleRequest(kind, data) {
     switch (kind) {
+      case 'getTwoFactor': {
+        const enabled = await requests.getTwoFactor(this.user);
+        return { enabled };
+      }
+
+      case 'setTwoFactor': {
+        const { enabled } = data;
+        await requests.setTwoFactor(this.user, enabled);
+        return {};
+      }
+
       case 'createGroup': {
         const { name } = data;
 
@@ -260,14 +283,22 @@ class StateLoggedIn {
         return { groups };
       }
 
-      case 'createChat': {
-        const { group, name } = data;
+      case 'getGroupInfo': {
+        const { groups, lastRefresh } = data;
+        const info = await requests.getGroupInfo(this.user, groups, lastRefresh);
+        return { groups: info };
+      }
+
+      case 'createModule': {
+        const { group, name, type } = data;
 
         if (!name) {
-          throw new RequestError('chat name cannot be empty');
+          throw new RequestError('module name cannot be empty');
+        } else if (!type) {
+          throw new RequestError('module type cannot be empty');
         }
 
-        const id = await requests.createChat(this.user, group, name);
+        const id = await requests.createModule(this.user, group, name, type);
         return { id };
       }
 
@@ -277,10 +308,42 @@ class StateLoggedIn {
         return { users };
       }
 
-      case 'getChats': {
+      case 'getUserInfo': {
+        const { users, lastRefresh } = data;
+        const info = await requests.getUserInfo(users, lastRefresh);
+        return { users: info };
+      }
+
+      case 'getModules': {
         const { group } = data;
-        const chats = await requests.getChats(this.user, group);
-        return { chats };
+        const modules = await requests.getModules(this.user, group);
+        return { modules };
+      }
+
+      case 'getModuleInfo': {
+        const { modules } = data;
+
+        // Split the modules up by group
+        const groupSplits = {};
+        for (const module of modules) {
+          if (module.group in groupSplits) {
+            groupSplits[module.group].push(module.id);
+          } else {
+            groupSplits[module.group] = [module.id];
+          }
+        }
+
+        // Query the database for all of the module in each group
+        const info = [];
+        for (const group in groupSplits) {
+          const moduleInfo = await requests.getModuleInfo(this.user, group, groupSplits[group]);
+          for (const module of moduleInfo) {
+            module.group = group;
+            info.push(module);
+          }
+        }
+
+        return { modules: info };
       }
 
       case 'sendInvite': {
@@ -553,7 +616,18 @@ class Connection {
    * Handle a request received from the client.
    */
   async handleRequest(request) {
+    // Parse the request as JSON
     const { kind, data } = JSON.parse(request);
+
+    // Make sure that kind is non-empty (otherwise it could give a strange error message)
+    if (!kind) {
+      throw new RequestError('kind cannot be empty');
+    }
+
+    // Make sure that kind is a string (since that's what the functions expect)
+    if (typeof kind !== 'string') {
+      throw new RequestError('kind must be a string');
+    }
 
     // Log out if the message required the user to be logged out first
     if (logoutMessages.includes(kind)) {

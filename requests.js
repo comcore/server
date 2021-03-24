@@ -70,7 +70,9 @@ async function closeDatabase() {
  * }
  */
 async function lookupAccount(email) {
-  const result = await db.collection("Users").findOne({emailAdr: email});
+  const result = await db.collection("Users")
+    .findOne({ emailAdr: email }, { projection: { name: 1, pass: 1, twoFactor: 1 } });
+
   if (result === null) {
     return null;
   }
@@ -128,6 +130,7 @@ async function getTwoFactor(user) {
  * Set whether two-factor authentication is enabled for an account.
  */
 async function setTwoFactor(user, twoFactor) {
+  checkBoolean(twoFactor);
   await db.collection("Users")
     .updateOne({ _id: ObjectId(user) }, { $set: { twoFactor } });
 }
@@ -137,8 +140,16 @@ async function setTwoFactor(user, twoFactor) {
  * the newly created group.
  */
 async function createGroup(user, name) {
-  const newGrpUsr = {user: ObjectId(user), role: "owner", muted: false};
-  const newGrp = {name: name, grpUsers: [newGrpUsr], chats: []};
+  const newGrp = {
+    name: name,
+    grpUsers: [{
+      user: ObjectId(user),
+      role: "owner",
+      muted: false,
+    }],
+    modules: [],
+  };
+
   const result = await db.collection("Groups")
     .insertOne(newGrp);
 
@@ -192,12 +203,12 @@ async function getGroupInfo(user, groups, lastRefresh) {
       }}
     ]);
 
-  const groupsData = await result.toArray();
-  return groupsData.map(groupData => {
-    const userData = groupData.grpUsers[0];
+  const groupInfos = await result.toArray();
+  return groupInfos.map(groupInfo => {
+    const userData = groupInfo.grpUsers[0];
     return {
-      id: groupData._id.toHexString(),
-      name: groupData.name,
+      id: groupInfo._id.toHexString(),
+      name: groupInfo.name,
       role: userData.role,
       muted: userData.muted,
     };
@@ -210,14 +221,32 @@ async function getGroupInfo(user, groups, lastRefresh) {
 async function checkUserInGroup(user, group) {
   const query = {
     _id: ObjectId(group),
-    grpUsers: { $elemMatch: { user: ObjectId(user) } } ,
+    grpUsers: { $elemMatch: { user: ObjectId(user) } },
   };
 
   const matching = await db.collection("Groups")
-    .findOne(query, { projection: { _id: 1 } });
+    .findOne(query, { projection: { _id: 0 } });
 
   if (!matching) {
     throw new RequestError('group does not exist');
+  }
+}
+
+/*
+ * Make sure the module is part of the group.
+ */
+async function checkModuleInGroup(type, module, group) {
+  const query = {
+    _id: ObjectId(module),
+    groupId: ObjectId(group),
+    type,
+  };
+
+  const matching = await db.collection("Modules")
+    .findOne(query, { projection: { _id: 0 } });
+
+  if (!matching) {
+    throw new RequestError('module does not exist');
   }
 }
 
@@ -238,6 +267,15 @@ async function getRole(user, group) {
 function checkValidRole(role) {
   if (!['owner', 'moderator', 'user'].includes(role)) {
     throw new RequestError('invalid role');
+  }
+}
+
+/*
+ * Make sure that a value is a boolean.
+ */
+function checkBoolean(bool) {
+  if (bool !== true && bool !== false) {
+    throw new RequestError('expected a boolean');
   }
 }
 
@@ -313,6 +351,20 @@ async function getUserInfo(users, lastRefresh) {
 }
 
 /*
+ * Get the name of a user. Used for information in notifications.
+ */
+async function getUserName(user) {
+  const result = await db.collection("Users")
+    .findOne({ _id: ObjectId(user) }, { projection: { _id: 0, name: 1 } });
+
+  if (result === null) {
+    throw new RequestError('user does not exist');
+  }
+
+  return result.name;
+}
+
+/*
  * Send an invite to another user to join a group. Make sure that the user has 'moderator' or
  * 'owner' status. Throw a RequestError if the request is invalid. Returns the invitation as
  * described in getInvites(), or null if already invited to the group or already in the group.
@@ -345,8 +397,7 @@ async function sendInvite(user, group, targetUser) {
 
   // Get the names to store with the invitation
   const groupName = groupResult.name;
-  const inviterData = await getUserInfo([{ id: user }], 0);
-  const inviter = inviterData[0].name;
+  const inviter = await getUserName(user);
 
   // Add the invitation to the database
   await db.collection("Invites")
@@ -381,6 +432,8 @@ async function getInvites(user) {
  * the group. Otherwise, just remove the invitation and don't add them to any group.
  */
 async function replyToInvite(user, group, accept) {
+  checkBoolean(accept);
+
   // Remove the invite from the invitations list
   const userId = ObjectId(user);
   const groupId = ObjectId(group);
@@ -481,6 +534,7 @@ async function setMuted(user, group, targetUser, muted) {
   if(user == targetUser) {
     throw new RequestError('Error: User and target cannot be the same');
   }
+  checkBoolean(muted);
   await permissionCheck(user, group, targetUser, 'mute/unmute');
   await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.muted" : muted} } );
 }
@@ -499,17 +553,27 @@ async function setMuted(user, group, targetUser, muted) {
  * Return the message ID of the newly added message.
  */
 async function sendMessage(user, group, chat, timestamp, contents) {
-  const check = await db.collection("Groups").findOne({_id: ObjectId(group), "grpUsers.user": ObjectId(user), "grpUsers.muted": false, chats: ObjectId(chat)});
-  if (check === null) {
-    throw new RequestError('Group/User Retrieval error');
-  }
-  const maxId = await db.collection("Messages").find({chatId: ObjectId(chat)}, { projection: {_id:0, chatId: 0}}).sort({msgId:-1}).limit(1).toArray();
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('chat', chat, group);
+
+  const maxId = await db.collection("Messages")
+    .find({chatId: ObjectId(chat)}, { projection: {_id:0, chatId: 0}})
+    .sort({msgId:-1})
+    .limit(1)
+    .toArray();
+
   let newId = 1;
   if (maxId.length !== 0) {
     newId = maxId[0].msgId + 1;
   }
 
-  var newObj = {chatId: ObjectId(chat), userId: ObjectId(user), msgId: newId, msg: contents, time: timestamp};
+  var newObj = {
+    chatId: ObjectId(chat),
+    userId: ObjectId(user),
+    msgId: newId,
+    msg: contents,
+    time: timestamp,
+  };
   await db.collection("Messages").insertOne(newObj);
   return newId;
 }
@@ -532,35 +596,39 @@ async function sendMessage(user, group, chat, timestamp, contents) {
  * }
  */
 async function getMessages(user, group, chat, after, before) {
-  const result = await db.collection("Groups").findOne({_id: ObjectId(group), "grpUsers.user": ObjectId(user), chats: ObjectId(chat)});
-  if (result === null) {
-    throw new RequestError('Group/User Retrieval error');
-  }
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('chat', chat, group);
 
-  const result2 = await db.collection("Messages")
-    .find({chatId: ObjectId(chat), msgId: {$gt: after, $lt: before}}, { projection: {_id:0, chatId: 0}})
+  const query = {
+    chatId: ObjectId(chat),
+    msgId: {$gt: after, $lt: before},
+  };
+
+  const result = await db.collection("Messages")
+    .find(query, { projection: { _id: 0, chatId: 0 } })
     .sort({msgId: -1})
     .limit(50)
     .toArray();
-  result2.reverse();
-  for (var i = 0; i < result2.length; i++) {
-    result2[i].id = result2[i]['msgId'];
-    result2[i].sender = result2[i]['userId'];
-    result2[i].timestamp = result2[i]['time'];
-    result2[i].contents = result2[i]['msg'];
-    delete result2[i].msgId;
-    delete result2[i].userId;
-    delete result2[i].time;
-    delete result2[i].msg;
+
+  result.reverse();
+  for (var i = 0; i < result.length; i++) {
+    result[i].id = result[i]['msgId'];
+    result[i].sender = result[i]['userId'];
+    result[i].timestamp = result[i]['time'];
+    result[i].contents = result[i]['msg'];
+    delete result[i].msgId;
+    delete result[i].userId;
+    delete result[i].time;
+    delete result[i].msg;
   }
-  return result2;
+  return result;
 }
 
 
 /*
- * Create a new module in the given group ID with the given name and module type. Make sure that the user ID is part
- * of the group before creating the module, and throw a RequestError if they are not authorized.
- * Return the module ID of the new module.
+ * Create a new module in the given group ID with the given name and module type. Make sure that the
+ * user ID is part of the group before creating the module, and throw a RequestError if they are not
+ * authorized.  Return the module ID of the new module.
  */
 async function createModule(user, group, name, type) {
   await checkModerator(user, group);
@@ -582,8 +650,8 @@ async function createModule(user, group, name, type) {
  *
  * {
  *   id:   the ID of the module,
- *   type: the type of the module,
  *   name: the name of the module,
+ *   type: 'chat' | 'task',
  * }
  */
 async function getModules(user, group) {
@@ -596,33 +664,43 @@ async function getModules(user, group) {
 
   return modules.map(modules => ({
     id: modules._id.toHexString(),
-    type: modules.type,
     name: modules.name,
+    type: modules.type,
   }));
 }
 
 /*
- * Get a module in a group. Make sure that the user ID is part of the group before
- * querying the DB, and throw a RequestError if they are not authorized. Each entry
- * should look like:
+ * Get the information about all of the requested modules in a group. Make sure that the user ID is
+ * part of the group before querying the DB, and throw a RequestError if they are not authorized.
+ * This is basically the same as getModules(), but it is provided for convenience for the client.
+ * Each entry should look like:
  *
  * {
  *   id:   the ID of the module,
- *   type: the type of the module,
  *   name: the name of the module,
+ *   type: 'chat' | 'task',
  * }
  */
-async function getModuleInfo(user, module) {
-  const moduleRes = await db.collection("Modules")
-    .findOne({ _id: ObjectId(module) }, {projection: { groupId: 1, name: 1, type: 1 }});
+async function getModuleInfo(user, group, modules) {
+  await checkUserInGroup(user, group);
 
-  await checkUserInGroup(user, moduleRes.groupId.toHexString());
+  const ids = modules.map(ObjectId);
 
-  return {
-    id: moduleRes._id.toHexString(),
-    type: moduleRes.type,
-    name: moduleRes.name
+  const query = {
+    _id: { $in: ids },
+    groupId: ObjectId(group),
   };
+
+  const result = await db.collection("Modules")
+    .find(query)
+    .project({ name: 1, type: 1 })
+    .toArray();
+
+  return result.map(module => ({
+    id: module._id.toHexString(),
+    name: module.name,
+    type: module.type,
+  }));
 }
 
 module.exports = {
@@ -639,6 +717,7 @@ module.exports = {
   getGroupInfo,
   getUsers,
   getUserInfo,
+  getUserName,
   sendInvite,
   getInvites,
   replyToInvite,
