@@ -455,7 +455,7 @@ class StateLoggedIn {
           }
         }
 
-        return {};
+        return { id };
       }
 
       case 'getMessages': {

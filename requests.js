@@ -233,20 +233,24 @@ async function checkUserInGroup(user, group) {
 }
 
 /*
- * Make sure the module is part of the group.
+ * Make sure the module is part of the group and has the correct type.
  */
 async function checkModuleInGroup(type, module, group) {
   const query = {
     _id: ObjectId(module),
     groupId: ObjectId(group),
-    type,
   };
 
   const matching = await db.collection("Modules")
-    .findOne(query, { projection: { _id: 0 } });
+    .findOne(query, { projection: { _id: 0, type: 1 } });
 
   if (!matching) {
     throw new RequestError('module does not exist');
+  }
+
+  // Check that the module is the correct type, or that it is a custom module
+  if (matching.type !== type && isModuleType(matching.type)) {
+    throw new RequestError('module is of incorrect type');
   }
 }
 
@@ -268,6 +272,14 @@ function checkValidRole(role) {
   if (!['owner', 'moderator', 'user'].includes(role)) {
     throw new RequestError('invalid role');
   }
+}
+
+/*
+ * Check if a type string corresponds to a module type. A custom module can be specified by picking
+ * a module type which is not included.
+ */
+function isModuleType(type) {
+  return ['chat', 'task', 'cal'].includes(type);
 }
 
 /*
