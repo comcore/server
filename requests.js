@@ -63,9 +63,10 @@ async function closeDatabase() {
  * Look up an account by email. If the account doesn't exist, return null. Otherwise return:
  *
  * {
- *   id:   the ID of the user,
- *   name: the name of the user,
- *   hash: the stored hashed password of the user,
+ *   id:        the ID of the user,
+ *   name:      the name of the user,
+ *   hash:      the stored hashed password of the user,
+ *   twoFactor: whether two-factor authentication is enabled,
  * }
  */
 async function lookupAccount(email) {
@@ -78,6 +79,7 @@ async function lookupAccount(email) {
     id: result._id.toHexString(),
     name: result.name,
     hash: result.pass,
+    twoFactor: result.twoFactor,
   };
 }
 
@@ -92,20 +94,17 @@ async function createAccount(name, email, hash) {
     return null;
   }
 
-  var newObj = {emailAdr: email, name: name, pass: hash, groups: []};
-  const result = await db.collection("Users").insertOne(newObj);
-  return result.insertedId.toHexString();
-}
+  const newObj = {
+    emailAdr: email,
+    name: name,
+    pass: hash,
+    groups: [],
+    twoFactor: false,
+  };
 
-/*
- * Look up the name associated with a user ID. This is used for labeling notifications.
- */
-async function getUserName(user) {
-  const result = await db.collection("Users").findOne({_id: ObjectId(user)});
-  if (result === null) {
-    return null;
-  }
-  return result.name;
+  const result = await db.collection("Users").insertOne(newObj);
+
+  return result.insertedId.toHexString();
 }
 
 /*
@@ -115,6 +114,22 @@ async function resetPassword(user, hash) {
   var query = { _id: ObjectId(user) };
   var newval = { $set: {pass: hash} };
   await db.collection("Users").updateOne(query, newval);
+}
+
+/*
+ * Check whether two-factor authentication is enabled for an account.
+ */
+async function getTwoFactor(user) {
+  const userInfo = await lookupAccount(user);
+  return userInfo.twoFactor;
+}
+
+/*
+ * Set whether two-factor authentication is enabled for an account.
+ */
+async function setTwoFactor(user, twoFactor) {
+  await db.collection("Users")
+    .updateOne({ _id: ObjectId(user) }, { $set: { twoFactor } });
 }
 
 /*
@@ -135,31 +150,25 @@ async function createGroup(user, name) {
 }
 
 /*
- * Look up the role and muted status of a user within a group.
+ * Get a list of the groups which a user is part of. Each entry in the array should look like:
+ *
+ * {
+ *   id:    the ID of the group,
+ * }
  */
-async function getGroupUserData(user, group) {
-  const result = await db.collection("Groups")
-    .aggregate([
-      { $match: { _id: ObjectId(group) } },
-      { $project: {
-        _id: 0,
-        grpUsers: { $filter: {
-          input: '$grpUsers',
-          cond: { $eq: ['$$this.user', ObjectId(user)] },
-        }}
-      }}
-    ]);
+async function getGroups(user) {
+  const userInfo = await db.collection("Users")
+    .findOne({ _id: ObjectId(user) }, { projection: { _id: 0, groups: 1 } });
 
-  const userData = await result.next();
-  if (userData === null) {
-    throw new RequestError('user not in group');
+  if (userInfo === null) {
+    throw new RequestError('user does not exist');
   }
 
-  return userData.grpUsers[0];
+  return userInfo.groups.map(id => ({ id: id.toHexString() }));
 }
 
 /*
- * Get a list of the groups which a user is part of. Each entry in the array should look like:
+ * Get the group info for all of the reqeusted groups. Each element looks like:
  *
  * {
  *   id:    the ID of the group,
@@ -168,22 +177,30 @@ async function getGroupUserData(user, group) {
  *   muted: false | true,
  * }
  */
-async function getGroups(user) {
-  const groups = await db.collection("Groups")
-    .find({ grpUsers: { $elemMatch: { user: ObjectId(user) } } })
-    .project({ name: 1, grpUsers: 1 })
-    .toArray();
+async function getGroupInfo(user, groups, lastRefresh) {
+  const ids = groups.map(group => ObjectId(group.id));
 
-  return groups.map(group => {
-    const userData = group.grpUsers
-      .find(userData => userData.user.toHexString() === user);
+  const result = await db.collection("Groups")
+    .aggregate([
+      { $match: { _id: { $in: ids } } },
+      { $project: {
+        name: 1,
+        grpUsers: { $filter: {
+          input: '$grpUsers',
+          cond: { $eq: ['$$this.user', ObjectId(user)] },
+        }}
+      }}
+    ]);
 
+  const groupsData = await result.toArray();
+  return groupsData.map(groupData => {
+    const userData = groupData.grpUsers[0];
     return {
-      id: group._id.toHexString(),
-      name: group.name,
+      id: groupData._id.toHexString(),
+      name: groupData.name,
       role: userData.role,
       muted: userData.muted,
-    }
+    };
   });
 }
 
@@ -208,8 +225,11 @@ async function checkUserInGroup(user, group) {
  * Get the role of a user in a group.
  */
 async function getRole(user, group) {
-  const userData = await getGroupUserData(user, group);
-  return userData.role;
+  const groupData = await getGroupInfo(user, [{ id: group }], 0);
+  if (groupData.length === 0) {
+    throw new RequestError('user not in group');
+  }
+  return groupData[0].role;
 }
 
 /*
@@ -247,31 +267,12 @@ async function checkModerator(user, group) {
 }
 
 /*
- * Create a new chat in the given group ID with the given name. Make sure that the user ID is part
- * of the group before creating the chat, and throw a RequestError if they are not authorized.
- * Return the chat ID of the new chat.
- */
-async function createChat(user, group, name) {
-  await checkModerator(user, group);
-
-  const result = await db.collection("Chats")
-    .insertOne({groupId: ObjectId(group), name });
-
-  const id = result.insertedId;
-  await db.collection("Groups")
-    .updateOne({ _id: ObjectId(group) }, { $push: {chats: id} });
-
-  return id.toHexString();
-}
-
-/*
  * Get a list of the users in a group. Make sure that the user ID is part of the group before
  * creating the list, and throw a RequestError if they are not authorized. The current user should
  * be included in the list. Each entry in the array should look like:
  *
  * {
  *   id:    the ID of the user,
- *   name:  the name of the user,
  *   role:  'owner' | 'moderator' | 'user',
  *   muted: false | true,
  * }
@@ -282,44 +283,32 @@ async function getUsers(user, group) {
   const result = await db.collection("Groups")
     .findOne({ _id: ObjectId(group) }, { projection: { _id: 0, grpUsers: 1 } });
 
-  // Lookup the name for each user separately (this could probably be done better?)
-  const users = [];
-  for (const userEntry of result.grpUsers) {
-    const userData = await db.collection("Users")
-      .findOne({ _id: userEntry.user }, { projection: { _id: 0, name: 1 } });
-
-    users.push({
-      id: userEntry.user.toHexString(),
-      name: userData.name,
-      role: userEntry.role,
-      muted: userEntry.muted,
-    });
-  }
-
-  return users;
+  return result.grpUsers.map(userEntry => ({
+    id: userEntry.user.toHexString(),
+    role: userEntry.role,
+    muted: userEntry.muted,
+  }));
 }
 
 /*
- * Get a list of the chats in a group. Make sure that the user ID is part of the group before
- * creating the list, and throw a RequestError if they are not authorized. Each entry in the array
- * should look like:
+ * Get the user info for all of the requested users. Each element should look like:
  *
  * {
- *   id:   the ID of the chat,
- *   name: the name of the chat,
+ *   id:   the ID of the user,
+ *   name: the name of the user,
  * }
  */
-async function getChats(user, group) {
-  await checkUserInGroup(user, group);
+async function getUserInfo(users, lastRefresh) {
+  const ids = users.map(user => ObjectId(user.id));
 
-  const chats = await db.collection("Chats")
-    .find({ groupId: ObjectId(group) })
+  const result = await db.collection("Users")
+    .find({ _id: { $in: ids } })
     .project({ name: 1 })
     .toArray();
 
-  return chats.map(chat => ({
-    id: chat._id.toHexString(),
-    name: chat.name,
+  return result.map(user => ({
+    id: user._id.toHexString(),
+    name: user.name,
   }));
 }
 
@@ -356,7 +345,8 @@ async function sendInvite(user, group, targetUser) {
 
   // Get the names to store with the invitation
   const groupName = groupResult.name;
-  const inviter = await getUserName(user);
+  const inviterData = await getUserInfo([{ id: user }], 0);
+  const inviter = inviterData[0].name;
 
   // Add the invitation to the database
   await db.collection("Invites")
@@ -641,13 +631,14 @@ module.exports = {
   closeDatabase,
   lookupAccount,
   createAccount,
-  getUserName,
   resetPassword,
+  getTwoFactor,
+  setTwoFactor,
   createGroup,
   getGroups,
-  createChat,
+  getGroupInfo,
   getUsers,
-  getChats,
+  getUserInfo,
   sendInvite,
   getInvites,
   replyToInvite,
@@ -659,5 +650,5 @@ module.exports = {
   getMessages,
   createModule,
   getModules,
-  getModuleInfo
+  getModuleInfo,
 };
