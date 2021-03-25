@@ -266,6 +266,17 @@ async function getRole(user, group) {
 }
 
 /*
+ * Get the muted status of a user in a group.
+ */
+async function getMuted(user, group) {
+  const groupData = await getGroupInfo(user, [{ id: group }], 0);
+  if (groupData.length === 0) {
+    throw new RequestError('user not in group');
+  }
+  return groupData[0].muted;
+}
+
+/*
  * Make sure the role string corresponds to a valid role.
  */
 function checkValidRole(role) {
@@ -565,8 +576,12 @@ async function setMuted(user, group, targetUser, muted) {
  * Return the message ID of the newly added message.
  */
 async function sendMessage(user, group, chat, timestamp, contents) {
-  await checkUserInGroup(user, group);
   await checkModuleInGroup('chat', chat, group);
+
+  const muted = await getMuted(user, group);
+  if (muted) {
+    throw new RequestError("user is muted");
+  }
 
   const maxId = await db.collection("Messages")
     .find({chatId: ObjectId(chat)}, { projection: {_id:0, chatId: 0}})
