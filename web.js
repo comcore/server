@@ -3,17 +3,19 @@ const http = require('http');
 const fs = require('fs');
 
 class WebServer {
-  constructor() {
+  constructor(options) {
     this.connections = new Set();
 
-    const options = {
-      key: fs.readFileSync('web_key.pem'),
-      cert: fs.readFileSync('web_cert.pem'),
-    };
+    this.httpsServer = https.createServer(options, (req, res) => {
+      this.handleRequest(req, res);
+    });
 
-    const handler = (req, res) => this.handleRequest(req, res);
-    this.httpServer = http.createServer(handler);
-    this.httpsServer = https.createServer(options, handler);
+    this.httpServer = http.createServer((req, res) => {
+      res.writeHead(301, {
+        Location: `https://${req.headers.host}${req.url}`,
+      });
+      res.end();
+    });
 
     this.registerServer(this.httpServer);
     this.registerServer(this.httpsServer);
@@ -32,7 +34,7 @@ class WebServer {
   }
 
   handleRequest(req, res) {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+    const url = new URL(req.url, `https://${req.headers.host}`);
     res.setHeader("Content-Type", "text/html");
     res.writeHead(200);
     res.end("<html><head><title>Comcore</title><body><h1>Comcore Test</h1></body></html>");

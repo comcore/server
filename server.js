@@ -685,7 +685,7 @@ class Server {
 
     this.server.listen(4433);
 
-    this.webServer = new WebServer();
+    this.webServer = new WebServer(options);
   }
 
   /*
