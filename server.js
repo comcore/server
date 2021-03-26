@@ -4,6 +4,8 @@ const { RequestError } = requests;
 const security = require('./security');
 const { ConfirmKind } = security;
 
+const { WebServer } = require('./web');
+
 const tls = require('tls');
 const fs = require('fs');
 const Denque = require('denque');
@@ -682,6 +684,8 @@ class Server {
     });
 
     this.server.listen(4433);
+
+    this.webServer = new WebServer(options);
   }
 
   /*
@@ -690,6 +694,7 @@ class Server {
   stop() {
     if (this.server) {
       this.server.close();
+      this.webServer.stop();
       for (const connection of this.connections) {
         connection.stop();
       }
