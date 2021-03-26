@@ -3,8 +3,13 @@ const http = require('http');
 const fs = require('fs');
 
 class WebServer {
-  constructor(options) {
+  constructor() {
     this.connections = new Set();
+
+    const options = {
+      key: fs.readFileSync('web_key.pem'),
+      cert: fs.readFileSync('web_cert.pem'),
+    };
 
     const handler = (req, res) => this.handleRequest(req, res);
     this.httpServer = http.createServer(handler);
