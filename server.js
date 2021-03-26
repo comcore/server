@@ -348,6 +348,23 @@ class StateLoggedIn {
         return { modules: info };
       }
 
+      case 'createInviteLink': {
+        const { group, expire } = data;
+
+        const code = await security.generateInviteCode();
+        const link = security.createLink(code);
+
+        return { link };
+      }
+
+      case 'checkInviteLink': {
+        throw new RequestError('unimplemented: checkInviteLink');
+      }
+
+      case 'useInviteLink': {
+        throw new RequestError('unimplemented: useInviteLink');
+      }
+
       case 'sendInvite': {
         const { group, email } = data;
 
@@ -475,6 +492,26 @@ class StateLoggedIn {
 
         const messages = await requests.getMessages(this.user, group, chat, after, before);
         return { messages };
+      }
+
+      case 'updateMessage': {
+        throw new RequestError('unimplemented: updateMessage');
+      }
+
+      case 'addTask': {
+        throw new RequestError('unimplemented: addTask');
+      }
+
+      case 'getTasks': {
+        throw new RequestError('unimplemented: addTask');
+      }
+
+      case 'updateTask': {
+        throw new RequestError('unimplemented: addTask');
+      }
+
+      case 'deleteTask': {
+        throw new RequestError('unimplemented: addTask');
       }
 
       default:

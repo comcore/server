@@ -78,6 +78,7 @@ async function sendCode(email, kind) {
     case ConfirmKind.resetPassword:
       subject = 'Reset your password';
       message = subject.toLowerCase();
+      break;
   }
 
   // Send the email containing the code to the user
@@ -86,7 +87,7 @@ async function sendCode(email, kind) {
     to: email,
     subject: `${subject} - Comcore`,
     text: `Please enter the code ${code} when prompted to ${message}.`,
-    html: `<p>Please enter the code <b>${code}</b> when prompted to ${message}.</p>`,
+    html: `<p>Please enter the code <strong>${code}</strong> when prompted to ${message}.</p>`,
   });
 
   return code;
@@ -145,6 +146,78 @@ function checkPassword(pass, fullHash) {
 
   // Compare the actual hash with the expected hash to verify the password
   return actualHash === expectedHash;
+}
+
+/*
+ * The number of characters in an invite code.
+ */
+const inviteCodeLength = 10;
+
+/*
+ * The prefix to put on an invite code to get an invite link.
+ */
+const inviteLinkPrefix = 'comcore.ml/join?'
+
+/*
+ * Generate an invite code for joining a group.
+ */
+async function generateInviteCode() {
+  // Restricted alphabet with no visually-ambiguous characters
+  let alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuwxyz23456789';
+
+  // Generate a random string using the alphabet
+  let code = '';
+  for (let i = 0; i < inviteCodeLength; i++) {
+    code += await new Promise((resolve, reject) =>
+      crypto.randomInt(alphabet.length, (err, n) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(alphabet[n]);
+        }
+      }));
+  }
+
+  return code;
+}
+
+/*
+ * Convert an invite code to an invite link.
+ */
+function createLink(code) {
+  return inviteLinkPrefix + code;
+}
+
+/*
+ * Parse an invite link into an invite code. Returns null if invalid.
+ */
+function parseLink(link) {
+  // Remove leading/trailing whitespace
+  link = link.trim();
+
+  // Remove 'http[s]://' at the start of the link
+  const https = 'https://';
+  const http = 'http://';
+  if (link.startsWith(https)) {
+    link = link.slice(https.length);
+  } else if (link.startsWith(http)) {
+    link = link.slice(http.length);
+  }
+
+  // Remove '[www.]comcore.ml/join?' at the start of the link
+  const www = 'www.' + inviteLinkPrefix;
+  if (link.startsWith(inviteLinkPrefix)) {
+    link = link.slice(inviteLinkPrefix.length);
+  } else if (link.startsWith(www)) {
+    link = link.slice(www.length);
+  }
+
+  // If what's left seems valid, then return it
+  if (link.length == inviteCodeLength) {
+    return link;
+  } else {
+    return null;
+  }
 }
 
 /*
@@ -282,5 +355,8 @@ module.exports = {
   sendCode,
   hashPassword,
   checkPassword,
+  generateInviteCode,
+  createLink,
+  parseLink,
   CodeManager,
 };
