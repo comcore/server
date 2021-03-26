@@ -349,20 +349,47 @@ class StateLoggedIn {
       }
 
       case 'createInviteLink': {
-        const { group, expire } = data;
+        let { group, expire } = data;
+
+        if (!Number.isFinite(expire)) {
+          throw new RequestError('expire timestamp must be a number');
+        }
+
+        // Codes should last at least an hour
+        const minExpire = Date.now() + 60 * 60 * 1000;
+        if (expire < minExpire) {
+          expire = minExpire;
+        }
 
         const code = await security.generateInviteCode();
+        await requests.addGroupInviteCode(this.user, group, code, expire);
         const link = security.createLink(code);
 
         return { link };
       }
 
-      case 'checkInviteLink': {
-        throw new RequestError('unimplemented: checkInviteLink');
-      }
-
       case 'useInviteLink': {
-        throw new RequestError('unimplemented: useInviteLink');
+        const { link } = data;
+
+        // Give 2 minute leniency when accepting a link
+        const now = Date.now() - 2 * 60 * 1000;
+
+        // Make sure that the link is valid
+        const code = security.parseLink(link);
+        if (!code) {
+          return { id: null };
+        }
+
+        // Make sure the link exists and hasn't expired
+        const info = await requests.checkInviteCode(code);
+        if (!info || (info.expire != 0 && now >= info.expire)) {
+          return { id: null };
+        }
+
+        // Add the user to the corresponding group
+        await requests.joinGroup(this.user, info.group);
+
+        return { id: info.group };
       }
 
       case 'sendInvite': {
@@ -671,6 +698,30 @@ class Connection {
     // Log out if the message required the user to be logged out first
     if (logoutMessages.includes(kind)) {
       this.logout();
+    }
+
+    // Handle state-independent messages
+    switch (kind) {
+      case 'checkInviteLink': {
+        const { link } = data;
+
+        // Make sure that the link is valid
+        const code = security.parseLink(link);
+        if (!code) {
+          return { valid: false };
+        }
+
+        // Make sure the link exists
+        const info = await requests.checkInviteCode(code);
+        if (!info) {
+          return { valid: false };
+        }
+
+        // Send the group name instead of the group ID
+        const name = await requests.getGroupName(info.group);
+
+        return { valid: true, name, expire: info.expire };
+      }
     }
 
     // Have the current login state handle the request

@@ -203,16 +203,20 @@ async function getGroupInfo(user, groups, lastRefresh) {
       }}
     ]);
 
-  const groupInfos = await result.toArray();
-  return groupInfos.map(groupInfo => {
+  const groupInfos = [];
+  for (const groupInfo of await result.toArray()) {
     const userData = groupInfo.grpUsers[0];
-    return {
-      id: groupInfo._id.toHexString(),
-      name: groupInfo.name,
-      role: userData.role,
-      muted: userData.muted,
-    };
-  });
+    if (userData) {
+      groupInfos.push({
+        id: groupInfo._id.toHexString(),
+        name: groupInfo.name,
+        role: userData.role,
+        muted: userData.muted,
+      });
+    }
+  }
+
+  return groupInfos;
 }
 
 /*
@@ -388,6 +392,90 @@ async function getUserName(user) {
 }
 
 /*
+ * Get the name of a group. Used for information in invites.
+ */
+async function getGroupName(group) {
+  const result = await db.collection("Groups")
+    .findOne({ _id: ObjectId(group) }, { projection: { _id: 0, name: 1 } });
+
+  if (result === null) {
+    throw new RequestError('group does not exist');
+  }
+
+  return result.name;
+}
+
+/*
+ * Add an invite code with an expiration timestamp to a group.
+ */
+async function addGroupInviteCode(user, group, code, expire) {
+  // Make sure the user has permission to send invites
+  await checkModerator(user, group);
+
+  // Make sure the code isn't already created
+  const existing = await checkInviteCode(code);
+  if (existing) {
+    throw new RequestError('code already in use');
+  }
+
+  // Add the code to the database
+  await db.collection("GroupLinks").insertOne({
+    code,
+    group: ObjectId(group),
+    expire,
+  });
+}
+
+/*
+ * Get the data associated with an invite code, or null if it doesn't exist. Data is of the form:
+ *
+ * {
+ *   group:  the ID of the group,
+ *   expire: the timestamp when the code will become unusable,
+ * }
+ */
+async function checkInviteCode(code) {
+  const info = await db.collection("GroupLinks")
+    .findOne({ code }, { projection: { _id: 0, code: 0 } });
+  if (!info) {
+    return null;
+  }
+
+  return {
+    group: info.group.toHexString(),
+    expire: info.expire,
+  };
+}
+
+/*
+ * Add a user to a group if they aren't already in the group.
+ */
+async function joinGroup(user, group) {
+  const userId = ObjectId(user);
+  const groupId = ObjectId(group);
+
+  // Make sure the user isn't in the group
+  const query = {
+    _id: groupId,
+    grpUsers: { $not: { $elemMatch: { user: userId } } },
+  };
+  const matching = await db.collection("Groups")
+    .findOne(query, { projection: { _id: 0 } });
+  if (!matching) {
+    return;
+  }
+
+  // Add the user to the group
+  const userData = { user: userId, role: 'user', muted: false };
+  await db.collection("Groups")
+    .updateOne({ _id: groupId }, { $push: { grpUsers: userData } });
+
+  // Add the group to the user
+  await db.collection("Users")
+    .updateOne({ _id: userId }, { $push: { groups: groupId } });
+}
+
+/*
  * Send an invite to another user to join a group. Make sure that the user has 'moderator' or
  * 'owner' status. Throw a RequestError if the request is invalid. Returns the invitation as
  * described in getInvites(), or null if already invited to the group or already in the group.
@@ -458,20 +546,11 @@ async function replyToInvite(user, group, accept) {
   checkBoolean(accept);
 
   // Remove the invite from the invitations list
-  const userId = ObjectId(user);
-  const groupId = ObjectId(group);
   const result = await db.collection("Invites")
-    .deleteOne({ user: userId, group: groupId });
+    .deleteOne({ user: ObjectId(user), group: ObjectId(group) });
 
   if (accept && result.deletedCount === 1) {
-    // Add the user to the group
-    const userData = { user: userId, role: 'user', muted: false };
-    await db.collection("Groups")
-      .updateOne({ _id: groupId }, { $push: { grpUsers: userData } });
-
-    // Add the group to the user
-    await db.collection("Users")
-      .updateOne({ _id: userId }, { $push: {groups: groupId} });
+    await joinGroup(user, group);
   }
 }
 
@@ -745,6 +824,10 @@ module.exports = {
   getUsers,
   getUserInfo,
   getUserName,
+  getGroupName,
+  addGroupInviteCode,
+  checkInviteCode,
+  joinGroup,
   sendInvite,
   getInvites,
   replyToInvite,
