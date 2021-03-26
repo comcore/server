@@ -694,7 +694,7 @@ class Server {
   stop() {
     if (this.server) {
       this.server.close();
-      this.webServer.stop();
+      this.webServer?.stop();
       for (const connection of this.connections) {
         connection.stop();
       }
