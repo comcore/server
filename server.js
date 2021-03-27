@@ -355,8 +355,8 @@ class StateLoggedIn {
           throw new RequestError('expire timestamp must be a number');
         }
 
-        // Codes should last at least 5 minutes
-        const minExpire = Date.now() + 5 * 60 * 1000;
+        // Codes should last at least 2 minutes
+        const minExpire = Date.now() + 2 * 60 * 1000;
         if (expire !== 0 && expire < minExpire) {
           expire = minExpire;
         }
@@ -371,8 +371,8 @@ class StateLoggedIn {
       case 'useInviteLink': {
         const { link } = data;
 
-        // Give 2 minute leniency when accepting a link
-        const now = Date.now() - 2 * 60 * 1000;
+        // Give people 30 seconds to join a group even after it expires
+        const now = Date.now() - 30 * 1000;
 
         // Make sure that the link is valid
         const code = security.parseLink(link);

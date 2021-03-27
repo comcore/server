@@ -121,12 +121,14 @@ class WebServer {
     // Format the contents differently based on if it will expire
     let contents = this.joinCountdown.toString();
     if (info.expire === 0) {
+      // There is no expire timestamp, so remove %[...]% sections
       contents = contents.replace(/%\[([^\]]|\][^%])*\]%/g, '<!-- removed -->');
     } else {
+      // There is an expire timestamp, so remove '%[' and ']%' delimiters and substitute '%TIME'
       contents = contents.replace(/%\[|\]%/g, '').replace(/%TIME/g, info.expire);
     }
 
-    // Add the name to the page
+    // Substitute '%NAME' for the name of the group
     return contents.replace(/%NAME/g, name)
   }
 
