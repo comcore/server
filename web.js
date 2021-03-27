@@ -3,6 +3,7 @@ const requests = require('./requests');
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
+const escape = require('escape-html');
 
 /*
  * A web server to server basic webpages on the Comcore website.
@@ -128,8 +129,8 @@ class WebServer {
       contents = contents.replace(/%\[|\]%/g, '').replace(/%TIME/g, info.expire);
     }
 
-    // Substitute '%NAME' for the name of the group
-    return contents.replace(/%NAME/g, name)
+    // Substitute '%NAME' for the name of the group, but with HTML characters escaped
+    return contents.replace(/%NAME/g, escape(name));
   }
 
   /*
