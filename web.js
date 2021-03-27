@@ -4,6 +4,9 @@ const https = require('https');
 const http = require('http');
 const fs = require('fs');
 
+/*
+ * A web server to server basic webpages on the Comcore website.
+ */
 class WebServer {
   constructor(options) {
     this.connections = new Set();
@@ -42,6 +45,9 @@ class WebServer {
     this.httpsServer.listen(443);
   }
 
+  /*
+   * Register a server to keep track of all ongoing connections.
+   */
   registerServer(server) {
     server.on('connection', socket => {
       this.connections.add(socket);
@@ -51,8 +57,14 @@ class WebServer {
     });
   }
 
+  /*
+   * Handle a request for a page.
+   */
   async handleRequest(req, res) {
+    // Parse the url request
     const url = new URL(req.url, `https://${req.headers.host}`);
+
+    // Pick the contents based on the page
     let contents;
     let code = 200;
     let type = 'text/html';
@@ -63,11 +75,7 @@ class WebServer {
         contents = this.index;
         break;
       case '/join':
-        if (url.search && url.search.length > 1) {
-          contents = await this.loadCountdown(res, url.search.slice(1));
-        } else {
-          contents = this.join;
-        }
+        contents = await this.loadCountdown(res, url.search);
         break;
       case '/stylesheet.css':
         contents = this.style;
@@ -82,22 +90,35 @@ class WebServer {
         code = 404;
         break;
     }
+
+    // Write the appropriate header and contents
     res.setHeader('Content-Type', type);
     res.writeHead(code);
     res.end(contents, 'utf-8');
   }
 
-  async loadCountdown(res, code) {
-    const info = await requests.checkInviteCode(code);
+  /*
+   * Load the countdown page for a join group code.
+   */
+  async loadCountdown(res, query) {
+    // Make sure there is a code specified
+    if (!query || query.length <= 1) {
+      return this.join;
+    }
+
+    // Make sure the code is valid
+    const info = await requests.checkInviteCode(query.slice(1));
     if (info === null) {
       return this.join;
     }
 
+    // Make sure the group still exists and get its name
     const name = await requests.getGroupName(info.group);
     if (name === null) {
       return this.join;
     }
 
+    // Format the contents differently based on if it will expire
     let contents = this.joinCountdown.toString();
     if (info.expire === 0) {
       contents = contents.replace(/%\[([^\]]|\][^%])*\]%/g, '<!-- removed -->');
@@ -105,9 +126,13 @@ class WebServer {
       contents = contents.replace(/%\[|\]%/g, '').replace(/%TIME/g, info.expire);
     }
 
+    // Add the name to the page
     return contents.replace(/%NAME/g, name)
   }
 
+  /*
+   * Stop the server and close all connections.
+   */
   stop() {
     this.httpsServer.close();
     this.httpServer.close();
