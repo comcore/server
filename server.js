@@ -355,9 +355,9 @@ class StateLoggedIn {
           throw new RequestError('expire timestamp must be a number');
         }
 
-        // Codes should last at least an hour
-        const minExpire = Date.now() + 60 * 60 * 1000;
-        if (expire < minExpire) {
+        // Codes should last at least 5 minutes
+        const minExpire = Date.now() + 5 * 60 * 1000;
+        if (expire !== 0 && expire < minExpire) {
           expire = minExpire;
         }
 

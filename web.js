@@ -1,3 +1,5 @@
+const requests = require('./requests');
+
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
@@ -8,7 +10,11 @@ class WebServer {
 
     // Set up HTTPS server
     this.httpsServer = https.createServer(options, (req, res) => {
-      this.handleRequest(req, res);
+      this.handleRequest(req, res).catch(err => {
+        console.log(err);
+        res.writeHead(500);
+        res.end();
+      });
     });
 
     // Set up HTTP server to redirect to HTTPS
@@ -26,6 +32,7 @@ class WebServer {
     // Load common pages
     this.index = fs.readFileSync('web/index.html');
     this.join = fs.readFileSync('web/join.html');
+    this.joinCountdown = fs.readFileSync('web/join_countdown.html');
     this.notFound = fs.readFileSync('web/not_found.html');
     this.style = fs.readFileSync('web/stylesheet.css');
     this.robots = fs.readFileSync('web/robots.txt');
@@ -44,7 +51,7 @@ class WebServer {
     });
   }
 
-  handleRequest(req, res) {
+  async handleRequest(req, res) {
     const url = new URL(req.url, `https://${req.headers.host}`);
     let contents;
     let code = 200;
@@ -56,7 +63,11 @@ class WebServer {
         contents = this.index;
         break;
       case '/join':
-        contents = this.join;
+        if (url.search && url.search.length > 1) {
+          contents = await this.loadCountdown(res, url.search.slice(1));
+        } else {
+          contents = this.join;
+        }
         break;
       case '/stylesheet.css':
         contents = this.style;
@@ -73,7 +84,28 @@ class WebServer {
     }
     res.setHeader('Content-Type', type);
     res.writeHead(code);
-    res.end(contents);
+    res.end(contents, 'utf-8');
+  }
+
+  async loadCountdown(res, code) {
+    const info = await requests.checkInviteCode(code);
+    if (info === null) {
+      return this.join;
+    }
+
+    const name = await requests.getGroupName(info.group);
+    if (name === null) {
+      return this.join;
+    }
+
+    let contents = this.joinCountdown.toString();
+    if (info.expire === 0) {
+      contents = contents.replace(/%\[([^\]]|\][^%])*\]%/g, '<!-- removed -->');
+    } else {
+      contents = contents.replace(/%\[|\]%/g, '').replace(/%TIME/g, info.expire);
+    }
+
+    return contents.replace(/%NAME/g, name)
   }
 
   stop() {

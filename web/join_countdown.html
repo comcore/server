@@ -1,0 +1,52 @@
+<html>
+    <head>
+        <title>Comcore - %NAME</title>
+        <link rel="stylesheet" href="stylesheet.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        %[<script>
+            function setText(text) {
+                document.getElementById('msg').innerHTML = text;
+            }
+
+            function matchTime(t, amount, unit) {
+                const time = Math.floor(t.time);
+                if (time >= amount) {
+                    t.time /= amount;
+                    t.delay *= amount;
+                    return false;
+                } else if (time !== 1) {
+                    unit += 's';
+                }
+
+                setText('This invitation will expire in ' + time + ' ' + unit + '.');
+                setTimeout(updateCounter, (t.time - time) * t.delay);
+                return true;
+            }
+
+            function updateCounter() {
+                let time = %TIME - Date.now();
+                if (time <= 0) {
+                    setText('This invitation has expired.');
+                    return;
+                }
+
+                let t = { time: time / 1000, delay: 1000 };
+                matchTime(t, 60, 'second')
+                || matchTime(t, 60, 'minute')
+                || matchTime(t, 24, 'hour')
+                || matchTime(t, 365, 'day')
+                || matchTime(t, 100, 'year');
+            }
+
+            window.onload = updateCounter;
+        </script>]%
+    </head>
+    <body>
+        <div class="box">
+            <h1>Join Group</h1>
+            <p>Download the Comcore app to join <b>%NAME</b>.</p>
+            %[<p><em id="msg">This invitation...</em></p>]%
+            <p><a href="/">Home Page</a></p>
+        </div>
+    </body>
+</html>
