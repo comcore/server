@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29699";
+//const url = "mongodb://localhost:29663";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -147,6 +147,7 @@ async function createGroup(user, name) {
       role: "owner",
       muted: false,
     }],
+    modDate: Date.now(),
     modules: [],
   };
 
@@ -620,9 +621,9 @@ async function setRole(user, group, targetUser, role) {
     throw new RequestError('Error: User and target cannot be the same');
   }
   await permissionCheck(user, group, targetUser, 'set role of');
-  await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.role" : role} } );
+  await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.role" : role, "modDate" : Date.now()} });
   if (role == 'owner') {
-    await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(user) }, {$set : {"grpUsers.$.role" : 'moderator'} } );
+    await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(user) }, {$set : {"grpUsers.$.role" : 'moderator', "modDate" : Date.now()} });
   }
 }
 
@@ -638,7 +639,7 @@ async function setMuted(user, group, targetUser, muted) {
   }
   checkBoolean(muted);
   await permissionCheck(user, group, targetUser, 'mute/unmute');
-  await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.muted" : muted} } );
+  await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.muted" : muted, "modDate" : Date.now()} } );
 }
 
 /*
@@ -740,7 +741,7 @@ async function createModule(user, group, name, type) {
   await checkModerator(user, group);
 
   const result = await db.collection("Modules")
-    .insertOne({groupId: ObjectId(group), type, name });
+    .insertOne({groupId: ObjectId(group), type, name, modDate: Date.now()});
 
   const id = result.insertedId;
   await db.collection("Groups")
@@ -809,6 +810,108 @@ async function getModuleInfo(user, group, modules) {
   }));
 }
 
+/*
+ * Create a task in a task module in a group. Make sure that the user ID is part of the group, that
+ * the module is part of the group, throw a RequestError if the request is invalid.
+ *
+ * Tasks should be assigned a sequential ID starting with 1 in each module, such that the first
+ * task in a module has ID 1, then the second has 2, then 3, 4, and so on. The database should
+ * store enough information to satisfy the requests in getTasks(). A UNIX timestamp is provided
+ * in the format of number of milliseconds since January 1, 1970. The task ID and timestamp are
+ * numbers, not strings.
+ *
+ * Return the message ID of the newly added message.
+ */
+async function createTask(user, group, modId, timestamp, description) {
+  await checkModuleInGroup('task', modId, group);
+
+  const maxId = await db.collection("Tasks")
+    .find({modId: ObjectId(modId)}, { projection: {_id:0, modId: 0}})
+    .sort({taskId:-1})
+    .limit(1)
+    .toArray();
+
+  let newId = 1;
+  if (maxId.length !== 0) {
+    newId = maxId[0].taskId + 1;
+  }
+
+  var newObj = {
+    modId: ObjectId(modId),
+    userId: ObjectId(user),
+    taskId: newId,
+    description: description,
+    time: timestamp,
+    completed: false,
+  };
+  await db.collection("Tasks").insertOne(newObj);
+  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+  return newId;
+}
+
+/*
+ * Get a set of tasks in the chat. Make sure that the user ID is part of the group, and that
+ * the module is part of the group before getting the list, and throw a RequestError if the request
+ * is invalid.
+ *
+ * The task IDs and timestamp are numbers, not strings.
+ *
+ * All tasks should be returned, with each entry in the array looking like:
+ *
+ * {
+ *   id:        the sequential ID of the task,
+ *   owner:    the user ID of the owner,
+ *   timestamp: the UNIX timestamp representing when the message was sent,
+ *   description:  the description of the task as a string,
+ *   completed: the status of the task,
+ * }
+ */
+async function getTasks(user, group, modId) {
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('task', modId, group);
+
+  const query = {
+    modId: ObjectId(modId),
+  };
+
+  const result = await db.collection("Tasks")
+    .find(query, { projection: { _id: 0, modId: 0 } })
+    .sort({taskId: -1})
+    .limit(100)
+    .toArray();
+
+  result.reverse();
+
+  return result.map(result => ({
+    id: result.taskId,
+    owner: result.userId,
+    timestamp: result.time,
+    description: result.description,
+    completed: result.completed,
+  }));
+}
+
+/*
+ * Updates a task's completion status
+ */
+async function setTaskCompletion(modId, task,  status) {
+  checkBoolean(status);
+  await db.collection("Tasks").updateOne( {_id: ObjectId(task), modId: ObjectId(modId)}, {$set : {"completed" : status} } );
+  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+}
+
+/*
+ * Delete task in module. Make sure that the user ID is part of the group, that
+ * the module is part of the group, throw a RequestError if the request is invalid.
+ */
+async function deleteTask(user, group, modId, task) {
+  await checkModerator(user, group);
+  await checkModuleInGroup('task', modId, group);
+  await db.collection("Tasks").deleteOne({_id: ObjectId(task)});
+  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+}
+
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -840,4 +943,8 @@ module.exports = {
   createModule,
   getModules,
   getModuleInfo,
+  createTask,
+  getTasks,
+  setTaskCompletion,
+  deleteTask
 };
