@@ -825,6 +825,11 @@ async function getModuleInfo(user, group, modules) {
 async function createTask(user, group, modId, timestamp, description) {
   await checkModuleInGroup('task', modId, group);
 
+  const muted = await getMuted(user, group);
+  if (muted) {
+    throw new RequestError("user is muted");
+  }
+
   const maxId = await db.collection("Tasks")
     .find({modId: ObjectId(modId)}, { projection: {_id:0, modId: 0}})
     .sort({taskId:-1})
@@ -859,11 +864,11 @@ async function createTask(user, group, modId, timestamp, description) {
  * All tasks should be returned, with each entry in the array looking like:
  *
  * {
- *   id:        the sequential ID of the task,
- *   owner:    the user ID of the owner,
- *   timestamp: the UNIX timestamp representing when the message was sent,
- *   description:  the description of the task as a string,
- *   completed: the status of the task,
+ *   id:          the sequential ID of the task,
+ *   owner:       the user ID of the owner,
+ *   timestamp:   the UNIX timestamp representing when the message was sent,
+ *   description: the description of the task as a string,
+ *   completed:   the status of the task,
  * }
  */
 async function getTasks(user, group, modId) {
@@ -894,9 +899,16 @@ async function getTasks(user, group, modId) {
 /*
  * Updates a task's completion status
  */
-async function setTaskCompletion(modId, task,  status) {
+async function setTaskCompletion(user, group, modId, task,  status) {
   checkBoolean(status);
-  await db.collection("Tasks").updateOne( {_id: ObjectId(task), modId: ObjectId(modId)}, {$set : {"completed" : status} } );
+  await checkModuleInGroup('task', modId, group);
+
+  const muted = await getMuted(user, group);
+  if (muted) {
+    throw new RequestError("user is muted");
+  }
+
+  await db.collection("Tasks").updateOne({ modId: ObjectId(modId), taskId: task }, { $set : { completed : status } });
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
@@ -905,12 +917,16 @@ async function setTaskCompletion(modId, task,  status) {
  * the module is part of the group, throw a RequestError if the request is invalid.
  */
 async function deleteTask(user, group, modId, task) {
-  await checkModerator(user, group);
   await checkModuleInGroup('task', modId, group);
-  await db.collection("Tasks").deleteOne({_id: ObjectId(task)});
+
+  const muted = await getMuted(user, group);
+  if (muted) {
+    throw new RequestError("user is muted");
+  }
+
+  await db.collection("Tasks").deleteOne({ taskId: task });
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
-
 
 module.exports = {
   RequestError,

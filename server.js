@@ -474,32 +474,18 @@ class StateLoggedIn {
           throw new RequestError('message contents cannot be empty');
         }
 
-        // Get the name of the current user
-        const name = await requests.getUserName(this.user);
-
-        // Get a list of all other users in a group to notify
-        const chatUsers = await requests.getUsers(this.user, group);
-
-        // Store the sent message in the database
         const timestamp = Date.now();
         const id = await requests.sendMessage(this.user, group, chat, timestamp, contents);
 
-        // Record the information about the message
-        const message = {
+        // Send the message as a notification as well
+        server.forwardGroup(this.user, group, 'message', {
           group,
           chat,
           id,
-          sender: { id: this.user, name },
+          sender: this.user,
           timestamp,
           contents,
-        };
-
-        // Also notify every user in the group of the new message, except for the one that sent it
-        for (const chatUser of chatUsers) {
-          if (chatUser.id !== this.user) {
-            server.forward(chatUser.id, 'message', message);
-          }
-        }
+        });
 
         return { id };
       }
@@ -526,19 +512,63 @@ class StateLoggedIn {
       }
 
       case 'addTask': {
-        throw new RequestError('unimplemented: addTask');
+        const { group, taskList, description } = data;
+
+        if (!description) {
+          throw new RequestError('task description cannot be empty');
+        }
+
+        const timestamp = Date.now();
+        const id = await requests.createTask(this.user, group, taskList, timestamp, description);
+
+        // Send the task as a notification as well
+        server.forwardGroup(this.user, group, 'task', {
+          group,
+          taskList,
+          id,
+          owner: this.user,
+          timestamp,
+          description,
+        });
+
+        return { id };
       }
 
       case 'getTasks': {
-        throw new RequestError('unimplemented: addTask');
+        const { group, taskList } = data;
+        const tasks = await requests.getTasks(this.user, group, taskList);
+        return { tasks };
       }
 
       case 'updateTask': {
-        throw new RequestError('unimplemented: addTask');
+        const { group, taskList, id, completed } = data;
+
+        await requests.setTaskCompletion(this.user, group, taskList, id, completed);
+
+        // Send the update as a notification as well
+        server.forwardGroup(this.user, group, 'taskUpdated', {
+          group,
+          taskList,
+          id,
+          completed,
+        });
+
+        return {};
       }
 
       case 'deleteTask': {
-        throw new RequestError('unimplemented: addTask');
+        const { group, taskList, id } = data;
+
+        await requests.deleteTask(this.user, group, taskList, id);
+
+        // Send the update as a notification as well
+        server.forwardGroup(this.user, group, 'taskDeleted', {
+          group,
+          taskList,
+          id,
+        });
+
+        return {};
       }
 
       default:
@@ -841,6 +871,19 @@ class Server {
 
     for (const connection of connections) {
       connection.send(kind, data);
+    }
+  }
+
+  /*
+   * Forward a notification to everyone in a group except a specific user.
+   */
+  async forwardGroup(user, group, kind, data) {
+    const groupUsers = await requests.getUsers(user, group);
+
+    for (const groupUser of groupUsers) {
+      if (groupUser.id !== user) {
+        this.forward(groupUser.id, kind, data);
+      }
     }
   }
 }
