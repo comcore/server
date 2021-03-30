@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29663";
+//const url = "mongodb://localhost:29717";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -731,6 +731,21 @@ async function getMessages(user, group, chat, after, before) {
   return result;
 }
 
+/*
+ * edit a messages in the chat. Make sure that the user ID is part of the group, and that
+ * the chat is part of the group before updating, and throw a RequestError if the request
+ * is invalid.
+ *
+ * The message IDs and timestamp are numbers, not strings.
+ */
+async function editMessage(user, group, modId, msgId, newContents, timestamp) {
+  await checkUserInGroup(user, group);
+  await checkModerator(user, group);
+  await db.collection("Messages")
+    .updateOne({ chatId: ObjectId(modId), msgId: msgId}, { $set: { msg: newContents, time: timestamp } });
+  await db.collection("Groups")
+    .updateOne({_id: ObjectId(group) }, {$set : { "modDate" : Date.now()} } );
+}
 
 /*
  * Create a new module in the given group ID with the given name and module type. Make sure that the
@@ -956,6 +971,7 @@ module.exports = {
   setMuted,
   sendMessage,
   getMessages,
+  editMessage,
   createModule,
   getModules,
   getModuleInfo,
