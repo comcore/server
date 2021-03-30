@@ -881,11 +881,8 @@ async function getTasks(user, group, modId) {
 
   const result = await db.collection("Tasks")
     .find(query, { projection: { _id: 0, modId: 0 } })
-    .sort({taskId: -1})
-    .limit(100)
+    .sort({taskId: 1})
     .toArray();
-
-  result.reverse();
 
   return result.map(result => ({
     id: result.taskId,
@@ -897,9 +894,9 @@ async function getTasks(user, group, modId) {
 }
 
 /*
- * Updates a task's completion status
+ * Updates a task's completion status. Returns the new task entry.
  */
-async function setTaskCompletion(user, group, modId, task,  status) {
+async function setTaskCompletion(user, group, modId, task, timestamp, status) {
   checkBoolean(status);
   await checkModuleInGroup('task', modId, group);
 
@@ -908,8 +905,24 @@ async function setTaskCompletion(user, group, modId, task,  status) {
     throw new RequestError("user is muted");
   }
 
-  await db.collection("Tasks").updateOne({ modId: ObjectId(modId), taskId: task }, { $set : { completed : status } });
+  await db.collection("Tasks").updateOne({ modId: ObjectId(modId), taskId: task }, {
+    $set: {
+      time: timestamp,
+      completed: status,
+    }
+  });
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+
+  const result = await db.collection("Tasks")
+    .findOne({ modId: ObjectId(modId), taskId: task }, { projection: { _id: 0, modId: 0 } });
+
+  return {
+    id: result.taskId,
+    owner: result.userId,
+    timestamp: result.time,
+    description: result.description,
+    completed: result.completed,
+  };
 }
 
 /*

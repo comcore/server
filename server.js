@@ -438,7 +438,8 @@ class StateLoggedIn {
         await requests.kick(this.user, group, target);
 
         // Also notify the target user that they were kicked
-        server.forward(target, 'kicked', { group });
+        const name = await requests.getGroupName(group);
+        server.forward(target, 'kicked', { group, name });
 
         return {};
       }
@@ -477,17 +478,22 @@ class StateLoggedIn {
         const timestamp = Date.now();
         const id = await requests.sendMessage(this.user, group, chat, timestamp, contents);
 
-        // Send the message as a notification as well
-        server.forwardGroup(this.user, group, 'message', {
-          group,
-          chat,
+        const message = {
           id,
           sender: this.user,
           timestamp,
           contents,
+        };
+
+        // Send the message as a notification as well
+        server.forwardGroup(this.user, group, 'message', {
+          group,
+          chat,
+          ...message,
         });
 
-        return { id };
+        // Return the message, but without data the client knows
+        return message;
       }
 
       case 'getMessages': {
@@ -521,17 +527,23 @@ class StateLoggedIn {
         const timestamp = Date.now();
         const id = await requests.createTask(this.user, group, taskList, timestamp, description);
 
-        // Send the task as a notification as well
-        server.forwardGroup(this.user, group, 'task', {
-          group,
-          taskList,
+        const task = {
           id,
           owner: this.user,
           timestamp,
           description,
+          completed: false,
+        };
+
+        // Send the task as a notification as well
+        server.forwardGroup(this.user, group, 'task', {
+          group,
+          taskList,
+          ...task,
         });
 
-        return { id };
+        // Return the task, but without data the client knows
+        return task;
       }
 
       case 'getTasks': {
@@ -543,17 +555,19 @@ class StateLoggedIn {
       case 'updateTask': {
         const { group, taskList, id, completed } = data;
 
-        await requests.setTaskCompletion(this.user, group, taskList, id, completed);
+        const timestamp = Date.now();
+        const entry = await requests.setTaskCompletion(
+          this.user, group, taskList, id, timestamp, completed);
 
         // Send the update as a notification as well
         server.forwardGroup(this.user, group, 'taskUpdated', {
           group,
           taskList,
-          id,
-          completed,
+          ...entry,
         });
 
-        return {};
+        // Return the task, but without data the client knows
+        return entry;
       }
 
       case 'deleteTask': {
