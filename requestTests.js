@@ -107,3 +107,11 @@ async function testDeleteTask(user, group, modId, task) {
   //console.log(result);
   await requests.closeDatabase();
 }
+
+//testEditMessage("605e5fe9b7afe56be0102ad3", "606033178dafb782947c6f23", "606035c78dafb782947c6f24", 1, "Hello - edited", Date.now())
+async function testEditMessage(user, group, modId, msgId, newContents, timestamp) {
+  await requests.initializeDatabase();
+  const result = await requests.editMessage(user, group, modId, msgId, newContents, timestamp);
+  //console.log(result);
+  await requests.closeDatabase();
+}
