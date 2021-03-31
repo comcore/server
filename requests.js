@@ -3,10 +3,10 @@ var ObjectId = require('mongodb').ObjectId;
 var Server = require('mongodb').Server;
 
 // Server URL
-const url = "mongodb://localhost:27017";
+//const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29717";
+const url = "mongodb://localhost:29465";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -655,8 +655,8 @@ async function setMuted(user, group, targetUser, muted) {
  *
  * Return the message ID of the newly added message.
  */
-async function sendMessage(user, group, chat, timestamp, contents) {
-  await checkModuleInGroup('chat', chat, group);
+async function sendMessage(user, group, modId, timestamp, contents) {
+  await checkModuleInGroup('chat', modId, group);
 
   const muted = await getMuted(user, group);
   if (muted) {
@@ -664,7 +664,7 @@ async function sendMessage(user, group, chat, timestamp, contents) {
   }
 
   const maxId = await db.collection("Messages")
-    .find({chatId: ObjectId(chat)}, { projection: {_id:0, chatId: 0}})
+    .find({modId: ObjectId(modId)}, { projection: {_id:0, modId: 0}})
     .sort({msgId:-1})
     .limit(1)
     .toArray();
@@ -675,7 +675,7 @@ async function sendMessage(user, group, chat, timestamp, contents) {
   }
 
   var newObj = {
-    chatId: ObjectId(chat),
+    modId: ObjectId(modId),
     userId: ObjectId(user),
     msgId: newId,
     msg: contents,
@@ -702,17 +702,17 @@ async function sendMessage(user, group, chat, timestamp, contents) {
  *   contents:  the contents of the message as a string,
  * }
  */
-async function getMessages(user, group, chat, after, before) {
+async function getMessages(user, group, modId, after, before) {
   await checkUserInGroup(user, group);
-  await checkModuleInGroup('chat', chat, group);
+  await checkModuleInGroup('chat', modId, group);
 
   const query = {
-    chatId: ObjectId(chat),
+    modId: ObjectId(modId),
     msgId: {$gt: after, $lt: before},
   };
 
   const result = await db.collection("Messages")
-    .find(query, { projection: { _id: 0, chatId: 0 } })
+    .find(query, { projection: { _id: 0, modId: 0 } })
     .sort({msgId: -1})
     .limit(50)
     .toArray();
@@ -742,7 +742,7 @@ async function editMessage(user, group, modId, msgId, newContents, timestamp) {
   await checkUserInGroup(user, group);
   await checkModerator(user, group);
   await db.collection("Messages")
-    .updateOne({ chatId: ObjectId(modId), msgId: msgId}, { $set: { msg: newContents, time: timestamp } });
+    .updateOne({ modId: ObjectId(modId), msgId: msgId}, { $set: { msg: newContents, time: timestamp } });
   await db.collection("Groups")
     .updateOne({_id: ObjectId(group) }, {$set : { "modDate" : Date.now()} } );
 }
