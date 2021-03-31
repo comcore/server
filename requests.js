@@ -165,7 +165,7 @@ async function createGroup(user, name) {
  * Get a list of the groups which a user is part of. Each entry in the array should look like:
  *
  * {
- *   id:    the ID of the group,
+ *   id: the ID of the group,
  * }
  */
 async function getGroups(user) {
@@ -183,10 +183,11 @@ async function getGroups(user) {
  * Get the group info for all of the reqeusted groups. Each element looks like:
  *
  * {
- *   id:    the ID of the group,
- *   name:  the name of the group,
- *   role:  'owner' | 'moderator' | 'user',
- *   muted: false | true,
+ *   id:         the ID of the group,
+ *   name:       the name of the group,
+ *   role:       'owner' | 'moderator' | 'user',
+ *   muted:      false | true,
+ *   lastUpdate: when the group was last updated
  * }
  */
 async function getGroupInfo(user, groups, lastRefresh) {
@@ -194,9 +195,10 @@ async function getGroupInfo(user, groups, lastRefresh) {
 
   const result = await db.collection("Groups")
     .aggregate([
-      { $match: { _id: { $in: ids } } },
+      { $match: { _id: { $in: ids }, modDate: { $gt: lastRefresh } } },
       { $project: {
         name: 1,
+        modDate: 1,
         grpUsers: { $filter: {
           input: '$grpUsers',
           cond: { $eq: ['$$this.user', ObjectId(user)] },
@@ -213,6 +215,7 @@ async function getGroupInfo(user, groups, lastRefresh) {
         name: groupInfo.name,
         role: userData.role,
         muted: userData.muted,
+        lastUpdate: groupInfo.modDate,
       });
     }
   }
@@ -777,9 +780,10 @@ async function createModule(user, group, name, type) {
  * should look like:
  *
  * {
- *   id:   the ID of the module,
- *   name: the name of the module,
- *   type: 'chat' | 'task',
+ *   id:         the ID of the module,
+ *   name:       the name of the module,
+ *   type:       'chat' | 'task',
+ *   lastUpdate: when the module was last updated
  * }
  */
 async function getModules(user, group) {
@@ -787,13 +791,14 @@ async function getModules(user, group) {
 
   const modules = await db.collection("Modules")
     .find({ groupId: ObjectId(group) })
-    .project({ name: 1, type: 1 })
+    .project({ name: 1, type: 1, modDate: 1 })
     .toArray();
 
-  return modules.map(modules => ({
-    id: modules._id.toHexString(),
-    name: modules.name,
-    type: modules.type,
+  return modules.map(module => ({
+    id: module._id.toHexString(),
+    name: module.name,
+    type: module.type,
+    lastUpdate: module.modDate,
   }));
 }
 
@@ -804,9 +809,10 @@ async function getModules(user, group) {
  * Each entry should look like:
  *
  * {
- *   id:   the ID of the module,
- *   name: the name of the module,
- *   type: 'chat' | 'task',
+ *   id:         the ID of the module,
+ *   name:       the name of the module,
+ *   type:       'chat' | 'task',
+ *   lastUpdate: when the module was last updated
  * }
  */
 async function getModuleInfo(user, group, modules) {
@@ -821,13 +827,14 @@ async function getModuleInfo(user, group, modules) {
 
   const result = await db.collection("Modules")
     .find(query)
-    .project({ name: 1, type: 1 })
+    .project({ name: 1, type: 1, modDate: 1 })
     .toArray();
 
   return result.map(module => ({
     id: module._id.toHexString(),
     name: module.name,
     type: module.type,
+    lastUpdate: module.modDate,
   }));
 }
 
