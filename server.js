@@ -514,7 +514,35 @@ class StateLoggedIn {
       }
 
       case 'updateMessage': {
-        throw new RequestError('unimplemented: updateMessage');
+        let { group, chat, id, newContents } = data;
+
+        // "Delete" a message by setting its contents to '[deleted]'
+        if (newContents === null) {
+          newContents = '[deleted]';
+        }
+
+        if (!newContents) {
+          throw new RequestError('message contents cannot be empty');
+        }
+
+        const timestamp = Date.now();
+        await requests.editMessage(this.user, group, chat, id, timestamp, newContents);
+        const entry = {
+          id,
+          sender: this.user,
+          timestamp,
+          contents: newContents,
+        };
+
+        // Send the update as a notification as well
+        server.forwardGroup(this.user, group, 'messageUpdated', {
+          group,
+          chat,
+          ...entry,
+        });
+
+        // Return the message, but without data the client knows
+        return entry;
       }
 
       case 'addTask': {

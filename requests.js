@@ -738,13 +738,19 @@ async function getMessages(user, group, modId, after, before) {
  *
  * The message IDs and timestamp are numbers, not strings.
  */
-async function editMessage(user, group, modId, msgId, newContents, timestamp) {
+async function editMessage(user, group, modId, msgId, timestamp, newContents) {
   await checkUserInGroup(user, group);
-  await checkModerator(user, group);
-  await db.collection("Messages")
-    .updateOne({ modId: ObjectId(modId), msgId: msgId}, { $set: { msg: newContents, time: timestamp } });
+  await checkModuleInGroup('chat', modId, group);
+
+  const result = await db.collection("Messages")
+    .updateOne({ modId: ObjectId(modId), msgId: msgId, userId: ObjectId(user)}, { $set: { msg: newContents, time: timestamp } });
+
+  if (result.modifiedCount === 0) {
+    throw new RequestError('cannot edit message');
+  }
+
   await db.collection("Groups")
-    .updateOne({_id: ObjectId(group) }, {$set : { "modDate" : Date.now()} } );
+    .updateOne({_id: ObjectId(group)}, {$set : { "modDate" : Date.now()} } );
 }
 
 /*
@@ -901,7 +907,7 @@ async function getTasks(user, group, modId) {
 
   return result.map(result => ({
     id: result.taskId,
-    owner: result.userId,
+    owner: result.userId.toHexString(),
     timestamp: result.time,
     description: result.description,
     completed: result.completed,
@@ -933,7 +939,7 @@ async function setTaskCompletion(user, group, modId, task, timestamp, status) {
 
   return {
     id: result.taskId,
-    owner: result.userId,
+    owner: result.userId.toHexString(),
     timestamp: result.time,
     description: result.description,
     completed: result.completed,

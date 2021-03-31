@@ -93,7 +93,7 @@ async function testGetTasks(user, group, modId) {
 }
 
 //testSetTaskCompletion("6060f1e73d312875a4a74e28", "6060f60bac2c8e7600954fea", true)
-async function testSetTaskCompletion(modId, task,  status) {
+async function testSetTaskCompletion(modId, task, status) {
   await requests.initializeDatabase();
   const result = await requests.setTaskCompletion(modId, task,  status);
   //console.log(result);
@@ -108,10 +108,10 @@ async function testDeleteTask(user, group, modId, task) {
   await requests.closeDatabase();
 }
 
-//testEditMessage("605e5fe9b7afe56be0102ad3", "606033178dafb782947c6f23", "606035c78dafb782947c6f24", 1, "Hello - edited", Date.now())
-async function testEditMessage(user, group, modId, msgId, newContents, timestamp) {
+//testEditMessage("605e5fe9b7afe56be0102ad3", "606033178dafb782947c6f23", "606035c78dafb782947c6f24", 1, Date.now(), "Hello - edited")
+async function testEditMessage(user, group, modId, msgId, timestamp, newContents) {
   await requests.initializeDatabase();
-  const result = await requests.editMessage(user, group, modId, msgId, newContents, timestamp);
+  const result = await requests.editMessage(user, group, modId, msgId, timestamp, newContents);
   //console.log(result);
   await requests.closeDatabase();
 }
