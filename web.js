@@ -137,7 +137,7 @@ class WebServer {
     contents = contents.replace(/%NAME/g, escape(name));
 
     // Substitute '%URL' for the full join link URL
-    contents = contents.replace(/%URL/g, 'https://' + security.createLink(code));
+    contents = contents.replace(/%URL/g, 'https://www.' + security.createLink(code));
 
     return contents;
   }
