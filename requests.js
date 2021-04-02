@@ -742,7 +742,7 @@ async function getMessages(user, group, modId, after, before) {
  * The message IDs and timestamp are numbers, not strings.
  */
 async function editMessage(user, group, modId, msgId, timestamp, newContents) {
-  await checkUserInGroup(user, group);
+  const role = await getRole(user, group);
   await checkModuleInGroup('chat', modId, group);
 
   const message = await db.collection("Messages")
@@ -759,7 +759,10 @@ async function editMessage(user, group, modId, msgId, timestamp, newContents) {
       throw new RequestError("cannot edit other user's message");
     }
 
-    await checkModerator(user, group);
+    const senderRole = await getRole(sender, group);
+    if (!canAffect(role, senderRole)) {
+      throw new RequestError("you do not have permission to delete this message");
+    }
   }
 
   const result = await db.collection("Messages")
