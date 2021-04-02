@@ -870,7 +870,7 @@ async function setModuleEnabled(user, group, modId, enabled) {
   const result = await db.collection("Modules")
     .updateOne(query, { $set : { enabled } });
 
-  if (result.modifiedCount !== 1) {
+  if (result.matchedCount !== 1) {
     throw new RequestError('module does not exist');
   }
 }
