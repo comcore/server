@@ -863,7 +863,7 @@ async function getModuleInfo(user, group, modules) {
  */
 async function setModuleEnabled(user, group, modId, enabled) {
   checkBoolean(enabled);
-  await checkUserInGroup(user, group);
+  await checkModerator(user, group);
 
   const query = { _id: ObjectId(modId), groupId: ObjectId(group) };
 
