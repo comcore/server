@@ -1,4 +1,5 @@
 const requests = require('./requests');
+const security = require('./security');
 
 const https = require('https');
 const http = require('http');
@@ -107,8 +108,11 @@ class WebServer {
       return this.join;
     }
 
+    // Get the code from the query string
+    const code = query.slice(1);
+
     // Make sure the code is valid
-    const info = await requests.checkInviteCode(query.slice(1));
+    const info = await requests.checkInviteCode(code);
     if (info === null) {
       return this.join;
     }
@@ -130,7 +134,12 @@ class WebServer {
     }
 
     // Substitute '%NAME' for the name of the group, but with HTML characters escaped
-    return contents.replace(/%NAME/g, escape(name));
+    contents = contents.replace(/%NAME/g, escape(name));
+
+    // Substitute '%URL' for the full join link URL
+    contents = contents.replace(/%URL/g, 'https://' + security.createLink(code));
+
+    return contents;
   }
 
   /*
