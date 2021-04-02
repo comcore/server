@@ -745,12 +745,25 @@ async function editMessage(user, group, modId, msgId, timestamp, newContents) {
   await checkUserInGroup(user, group);
   await checkModuleInGroup('chat', modId, group);
 
-  const result = await db.collection("Messages")
-    .updateOne({ modId: ObjectId(modId), msgId: msgId, userId: ObjectId(user)}, { $set: { msg: newContents, time: timestamp } });
+  const message = await db.collection("Messages")
+    .findOne({ modId: ObjectId(modId), msgId: msgId }, { projection: { userId: 1, msg: 1 } });
 
-  if (result.modifiedCount === 0) {
-    throw new RequestError('cannot edit message');
+  const sender = message.userId.toHexString();
+
+  if (!message.msg) {
+    throw new RequestError("cannot edit deleted message");
   }
+
+  if (user !== sender) {
+    if (newContents) {
+      throw new RequestError("cannot edit other user's message");
+    }
+
+    await checkModerator(user, group);
+  }
+
+  const result = await db.collection("Messages")
+    .updateOne({ _id: message._id }, { $set: { msg: newContents, time: timestamp } });
 
   await db.collection("Groups")
     .updateOne({_id: ObjectId(group)}, {$set : { "modDate" : Date.now()} } );

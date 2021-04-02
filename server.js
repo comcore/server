@@ -516,12 +516,10 @@ class StateLoggedIn {
       case 'updateMessage': {
         let { group, chat, id, newContents } = data;
 
-        // "Delete" a message by setting its contents to '[deleted]'
+        // "Delete" a message by setting its contents to be empty
         if (newContents === null) {
-          newContents = '[deleted]';
-        }
-
-        if (!newContents) {
+          newContents = '';
+        } else if (!newContents) {
           throw new RequestError('message contents cannot be empty');
         }
 
