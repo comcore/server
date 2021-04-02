@@ -781,7 +781,7 @@ async function createModule(user, group, name, type) {
   await checkModerator(user, group);
 
   const result = await db.collection("Modules")
-    .insertOne({groupId: ObjectId(group), type, name, modDate: Date.now()});
+    .insertOne({groupId: ObjectId(group), type, name, modDate: Date.now(), enabled: true});
 
   const id = result.insertedId;
   await db.collection("Groups")
@@ -799,7 +799,8 @@ async function createModule(user, group, name, type) {
  *   id:         the ID of the module,
  *   name:       the name of the module,
  *   type:       'chat' | 'task',
- *   lastUpdate: when the module was last updated
+ *   lastUpdate: when the module was last updated,
+ *   enabled:    whether the module is enabled,
  * }
  */
 async function getModules(user, group) {
@@ -807,7 +808,7 @@ async function getModules(user, group) {
 
   const modules = await db.collection("Modules")
     .find({ groupId: ObjectId(group) })
-    .project({ name: 1, type: 1, modDate: 1 })
+    .project({ name: 1, type: 1, modDate: 1, enabled: 1 })
     .toArray();
 
   return modules.map(module => ({
@@ -815,6 +816,7 @@ async function getModules(user, group) {
     name: module.name,
     type: module.type,
     lastUpdate: module.modDate,
+    enabled: module.enabled,
   }));
 }
 
@@ -828,7 +830,8 @@ async function getModules(user, group) {
  *   id:         the ID of the module,
  *   name:       the name of the module,
  *   type:       'chat' | 'task',
- *   lastUpdate: when the module was last updated
+ *   lastUpdate: when the module was last updated,
+ *   enabled:    whether the module is enabled,
  * }
  */
 async function getModuleInfo(user, group, modules) {
@@ -843,7 +846,7 @@ async function getModuleInfo(user, group, modules) {
 
   const result = await db.collection("Modules")
     .find(query)
-    .project({ name: 1, type: 1, modDate: 1 })
+    .project({ name: 1, type: 1, modDate: 1, enabled: 1 })
     .toArray();
 
   return result.map(module => ({
@@ -851,7 +854,25 @@ async function getModuleInfo(user, group, modules) {
     name: module.name,
     type: module.type,
     lastUpdate: module.modDate,
+    enabled: module.enabled,
   }));
+}
+
+/*
+ * Set whether a module is enabled or disabled.
+ */
+async function setModuleEnabled(user, group, modId, enabled) {
+  checkBoolean(enabled);
+  await checkUserInGroup(user, group);
+
+  const query = { _id: ObjectId(modId), groupId: ObjectId(group) };
+
+  const result = await db.collection("Modules")
+    .updateOne(query, { $set : { enabled } });
+
+  if (result.modifiedCount !== 1) {
+    throw new RequestError('module does not exist');
+  }
 }
 
 /*
@@ -1017,6 +1038,7 @@ module.exports = {
   createModule,
   getModules,
   getModuleInfo,
+  setModuleEnabled,
   createTask,
   getTasks,
   setTaskCompletion,

@@ -304,6 +304,12 @@ class StateLoggedIn {
         return { id };
       }
 
+      case 'setModuleEnabled': {
+        const { group, id, enabled } = data;
+        await requests.setModuleEnabled(this.user, group, id, enabled);
+        return {};
+      }
+
       case 'getUsers': {
         const { group } = data;
         const users = await requests.getUsers(this.user, group);
