@@ -122,8 +122,14 @@ async function resetPassword(user, hash) {
  * Check whether two-factor authentication is enabled for an account.
  */
 async function getTwoFactor(user) {
-  const userInfo = await lookupAccount(user);
-  return userInfo.twoFactor;
+  const result = await db.collection("Users")
+    .findOne({ _id: ObjectId(user) }, { projection: { _id: 0, twoFactor: 1 } });
+
+  if (result === null) {
+    throw new RequestError('user does not exist');
+  }
+
+  return result.twoFactor;
 }
 
 /*
