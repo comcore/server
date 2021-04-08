@@ -116,10 +116,18 @@ async function testEditMessage(user, group, modId, msgId, timestamp, newContents
   await requests.closeDatabase();
 }
 
-testGetAuthToken("ilingam@purdue.edu")
+//testGetAuthToken("ilingam@purdue.edu")
 async function testGetAuthToken(email) {
   await requests.initializeDatabase();
   const result = await requests.getAuthToken(email);
   console.log(result);
+  await requests.closeDatabase();
+}
+
+//testSetAuthToken("ilingam@purdue.edu", null)
+async function testSetAuthToken(email, authToken) {
+  await requests.initializeDatabase();
+  const result = await requests.setAuthToken(email, authToken);
+  //console.log(result);
   await requests.closeDatabase();
 }
