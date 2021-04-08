@@ -1028,6 +1028,14 @@ async function getAuthToken(email) {
   return result.authToken;
 }
 
+/*
+ * Set auth token
+ */
+async function setAuthToken(email, authToken) {
+  await db.collection("Users")
+    .updateOne({ emailAdr: email }, { $set: { "authToken": authToken } });
+}
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1066,4 +1074,5 @@ module.exports = {
   setTaskCompletion,
   deleteTask,
   getAuthToken,
+  setAuthToken,
 };
