@@ -1014,6 +1014,20 @@ async function deleteTask(user, group, modId, task) {
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
+/*
+ * Look up an account by email. If the account doesn't exist, return null. Otherwise return auth token
+ */
+async function getAuthToken(email) {
+  const result = await db.collection("Users")
+    .findOne({ emailAdr: email }, { projection: { _id: 0, authToken: 1 } });
+
+  if (result === null) {
+    throw new RequestError('user does not exist');
+  }
+
+  return result.authToken;
+}
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1051,4 +1065,5 @@ module.exports = {
   getTasks,
   setTaskCompletion,
   deleteTask,
+  getAuthToken,
 };
