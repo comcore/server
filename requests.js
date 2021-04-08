@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29465";
+//const url = "mongodb://localhost:29556";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -82,6 +82,7 @@ async function lookupAccount(email) {
     name: result.name,
     hash: result.pass,
     twoFactor: result.twoFactor,
+    authToken: result.authToken,
   };
 }
 
@@ -102,6 +103,7 @@ async function createAccount(name, email, hash) {
     pass: hash,
     groups: [],
     twoFactor: false,
+    authToken: null,
   };
 
   const result = await db.collection("Users").insertOne(newObj);
@@ -1048,5 +1050,5 @@ module.exports = {
   createTask,
   getTasks,
   setTaskCompletion,
-  deleteTask
+  deleteTask,
 };
