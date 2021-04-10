@@ -221,6 +221,20 @@ function parseLink(link) {
 }
 
 /*
+ * Generate a random login token.
+ */
+function generateToken() {
+  return new Promise((resolve, reject) =>
+    crypto.randomBytes(32, (err, buffer) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(buffer.toString('hex'));
+      }
+    }));
+}
+
+/*
  * Keeps track of confirmation codes and accounts which are waiting for confirmation.
  */
 class CodeManager {
@@ -358,5 +372,6 @@ module.exports = {
   generateInviteCode,
   createLink,
   parseLink,
+  generateToken,
   CodeManager,
 };

@@ -75,10 +75,19 @@ class StateLoggedOut {
         }
 
         // Transition to the logged in state
-        this.connection.setState(
-          new StateLoggedIn(this.connection, account.id, account.name));
+        await StateLoggedIn.login(this.connection, account.id, account.name);
 
         return { status: 'SUCCESS' };
+      }
+
+      case 'connect': {
+        const { token } = data;
+
+        // TODO check if the token is valid
+
+        this.connection.forceLogout();
+
+        return {};
       }
 
       case 'createAccount': {
@@ -165,8 +174,7 @@ class StateConfirmEmail {
             const { id, name } = await server.codeManager.finishCreation(this.email);
 
             // Transition to the logged in state
-            this.connection.setState(
-              new StateLoggedIn(this.connection, id, name));
+            await StateLoggedIn.login(this.connection, id, name);
 
             break;
           }
@@ -175,8 +183,7 @@ class StateConfirmEmail {
             // Transition to the logged in state
             const name = await requests.getUserName(codeData);
 
-            this.connection.setState(
-              new StateLoggedIn(this.connection, codeData, name));
+            await StateLoggedIn.login(this.connection, codeData, name);
 
             break;
           }
@@ -221,8 +228,7 @@ class StateResetPassword {
         // Transition to the logged in state
         const name = await requests.getUserName(this.user);
 
-        this.connection.setState(
-          new StateLoggedIn(this.connection, this.user, name));
+        await StateLoggedIn.login(this.connection, this.user, name);
 
         return { reset: true };
       default:
@@ -235,10 +241,19 @@ class StateResetPassword {
  * The login state corresponding to logged in user.
  */
 class StateLoggedIn {
-  constructor(connection, user, name) {
+  static async login(connection, user, name) {
+    const token = await security.generateToken();
+
+    // TODO actually record token
+
+    connection.setState(new StateLoggedIn(connection, user, name, token));
+  }
+
+  constructor(connection, user, name, token) {
     this.connection = connection;
     this.user = user;
     this.name = name;
+    this.token = token;
   }
 
   /*
@@ -246,7 +261,7 @@ class StateLoggedIn {
    */
   start() {
     server.loginConnection(this.connection, this.user);
-    this.connection.send('setUser', { id: this.user, name: this.name });
+    this.connection.send('login', { id: this.user, name: this.name, token: this.token});
   }
 
   /*
