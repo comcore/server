@@ -149,6 +149,29 @@ function checkPassword(pass, fullHash) {
 }
 
 /*
+ * Generate a code of a certain length which is human-readable.
+ */
+async function generateHumanReadableCode(length) {
+  // Restricted alphabet with no visually-ambiguous characters
+  let alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuwxyz23456789';
+
+  // Generate a random string using the alphabet
+  let code = '';
+  for (let i = 0; i < length; i++) {
+    code += await new Promise((resolve, reject) =>
+      crypto.randomInt(alphabet.length, (err, n) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(alphabet[n]);
+        }
+      }));
+  }
+
+  return code;
+}
+
+/*
  * The number of characters in an invite code.
  */
 const inviteCodeLength = 10;
@@ -162,23 +185,7 @@ const inviteLinkPrefix = 'comcore.ml/join?'
  * Generate an invite code for joining a group.
  */
 async function generateInviteCode() {
-  // Restricted alphabet with no visually-ambiguous characters
-  let alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuwxyz23456789';
-
-  // Generate a random string using the alphabet
-  let code = '';
-  for (let i = 0; i < inviteCodeLength; i++) {
-    code += await new Promise((resolve, reject) =>
-      crypto.randomInt(alphabet.length, (err, n) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(alphabet[n]);
-        }
-      }));
-  }
-
-  return code;
+  return await generateHumanReadableCode(inviteCodeLength);
 }
 
 /*
@@ -232,6 +239,82 @@ function generateToken() {
         resolve(buffer.toString('hex'));
       }
     }));
+}
+
+/*
+ * Limit file size to 10 MB.
+ */
+const maxFileSize = 10000000;
+
+/*
+ * The regex to use when validating a file request.
+ */
+const fileRegex = /^\/file\/([A-Za-z0-9]+-([a-zA-Z0-9._-]+))$/
+
+/*
+ * Store a file that a user has uploaded.
+ */
+async function storeFile(name, contentsBase64) {
+  // Convert the Base64 to raw bytes
+  const fileBuffer = Buffer.from(contentsBase64, 'base64');
+
+  // Make sure the file isn't too large
+  if (fileBuffer.length > maxFileSize) {
+    throw new RequestError('file size too large: ' + fileBuffer.length);
+  }
+
+  // Remove leading/trailing whitespace from the string
+  name = name.trim();
+
+  // Remove any directories before the filename
+  const lastSlash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+  if (lastSlash != -1) {
+    name = name.slice(lastSlash + 1);
+  }
+
+  // Limit the length of the file
+  const maxLength = 128;
+  if (name.length > maxLength) {
+    name = name.slice(-maxLength);
+  }
+
+  // Replace any non-alphanumeric characters with an underscore
+  name = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+  // Replace an empty name with the timestamp
+  if (!name) {
+    name = String(Date.now());
+  }
+
+  // Add a unique prefix to the start of the name
+  const prefix = await generateHumanReadableCode(20);
+  name = prefix + name;
+
+  // Write the file to the uploads directory
+  await new Promise((resolve, reject) => {
+    fs.writeFile('uploads/' + name, fileBuffer, { mode: 0o400 }, err => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+
+  // Return the link to the file
+  return 'comcore.ml/file/' + name;
+}
+
+/*
+ * Parse a file name from a web request.
+ */
+function parseFileName(path) {
+  let match = fileRegex.exec(path);
+  if (match) {
+    return match.slice(1, 3);
+  } else {
+    return null;
+  }
 }
 
 /*
@@ -373,5 +456,7 @@ module.exports = {
   createLink,
   parseLink,
   generateToken,
+  storeFile,
+  parseFileName,
   CodeManager,
 };

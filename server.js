@@ -489,6 +489,12 @@ class StateLoggedIn {
         return {};
       }
 
+      case 'uploadFile': {
+        const { name, contents } = data;
+        const link = await security.storeFile(name, contents);
+        return { link };
+      }
+
       case 'sendMessage': {
         const { group, chat, contents } = data;
 

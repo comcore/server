@@ -77,7 +77,7 @@ class WebServer {
         contents = this.index;
         break;
       case '/join':
-        contents = await this.loadCountdown(res, url.search);
+        contents = await this.loadCountdown(url.search);
         break;
       case '/stylesheet.css':
         contents = this.style;
@@ -88,6 +88,10 @@ class WebServer {
         type = 'text/plain';
         break;
       default:
+        if (await this.loadFile(res, url.pathname)) {
+          return;
+        }
+
         contents = this.notFound;
         code = 404;
         break;
@@ -102,7 +106,7 @@ class WebServer {
   /*
    * Load the countdown page for a join group code.
    */
-  async loadCountdown(res, query) {
+  async loadCountdown(query) {
     // Make sure there is a code specified
     if (!query || query.length <= 1) {
       return this.join;
@@ -140,6 +144,41 @@ class WebServer {
     contents = contents.replace(/%URL/g, 'https://www.' + security.createLink(code));
 
     return contents;
+  }
+
+  /*
+   * Load a file that a user has uploaded.
+   */
+  async loadFile(res, path) {
+    // Verify that the path has the correct format for a file upload
+    const parsed = security.parseFileName(path);
+    if (!parsed) {
+      return false;
+    }
+
+    // Extract the two names for the file
+    const [internalName, externalName] = parsed;
+
+    // Try to open the file
+    const fd = await new Promise((resolve, reject) => {
+      fs.open('uploads/' + internalName, (err, fd) =>
+        resolve(err ? null : fd));
+    });
+
+    // Make sure the file existed
+    if (fd === null) {
+      return false;
+    }
+
+    // Set the appropriate headers for downloading
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${externalName}"`);
+    res.writeHead(200);
+
+    // Forward the file contents to the response
+    fs.createReadStream(null, { fd }).pipe(res);
+
+    return true;
   }
 
   /*
