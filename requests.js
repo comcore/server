@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29465";
+//const url = "mongodb://localhost:29556";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -82,6 +82,7 @@ async function lookupAccount(email) {
     name: result.name,
     hash: result.pass,
     twoFactor: result.twoFactor,
+    authToken: result.authToken,
   };
 }
 
@@ -102,6 +103,7 @@ async function createAccount(name, email, hash) {
     pass: hash,
     groups: [],
     twoFactor: false,
+    authToken: null,
   };
 
   const result = await db.collection("Users").insertOne(newObj);
@@ -1012,6 +1014,28 @@ async function deleteTask(user, group, modId, task) {
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
+/*
+ * Look up an account by email. If the account doesn't exist, return null. Otherwise return auth token
+ */
+async function getAuthToken(email) {
+  const result = await db.collection("Users")
+    .findOne({ emailAdr: email }, { projection: { _id: 0, authToken: 1 } });
+
+  if (result === null) {
+    throw new RequestError('user does not exist');
+  }
+
+  return result.authToken;
+}
+
+/*
+ * Set auth token
+ */
+async function setAuthToken(email, authToken) {
+  await db.collection("Users")
+    .updateOne({ emailAdr: email }, { $set: { "authToken": authToken } });
+}
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1048,5 +1072,7 @@ module.exports = {
   createTask,
   getTasks,
   setTaskCompletion,
-  deleteTask
+  deleteTask,
+  getAuthToken,
+  setAuthToken,
 };
