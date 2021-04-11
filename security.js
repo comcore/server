@@ -288,7 +288,7 @@ async function storeFile(name, contentsBase64) {
 
   // Add a unique prefix to the start of the name
   const prefix = await generateHumanReadableCode(20);
-  name = prefix + name;
+  name = `${prefix}-${name}`;
 
   // Write the file to the uploads directory
   await new Promise((resolve, reject) => {
