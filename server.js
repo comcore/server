@@ -74,18 +74,26 @@ class StateLoggedOut {
           return { status: 'ENTER_CODE' };
         }
 
-        // Transition to the logged in state
+        // Generate a login token and transition to the logged in state
         await StateLoggedIn.login(this.connection, account.id, account.name);
 
         return { status: 'SUCCESS' };
       }
 
       case 'connect': {
-        const { token } = data;
+        const { id, token } = data;
 
-        // TODO check if the token is valid
+        // Check that the token is correct
+        const expectedToken = await requests.getAuthToken(id);
+        if (token !== expectedToken) {
+          this.connection.forceLogout();
+          return {};
+        }
 
-        this.connection.forceLogout();
+        // Transition to the logged in state with the specific token
+        const name = await requests.getUserName(id);
+        this.connection.setState(
+          new StateLoggedIn(this.connection, id, name, token));
 
         return {};
       }
@@ -173,7 +181,7 @@ class StateConfirmEmail {
             // Finish account creation and return the user ID and name
             const { id, name } = await server.codeManager.finishCreation(this.email);
 
-            // Transition to the logged in state
+            // Generate a login token and transition to the logged in state
             await StateLoggedIn.login(this.connection, id, name);
 
             break;
@@ -183,6 +191,7 @@ class StateConfirmEmail {
             // Transition to the logged in state
             const name = await requests.getUserName(codeData);
 
+            // Generate a login token and transition to the logged in state
             await StateLoggedIn.login(this.connection, codeData, name);
 
             break;
@@ -228,6 +237,7 @@ class StateResetPassword {
         // Transition to the logged in state
         const name = await requests.getUserName(this.user);
 
+        // Generate a login token and transition to the logged in state
         await StateLoggedIn.login(this.connection, this.user, name);
 
         return { reset: true };
@@ -242,11 +252,11 @@ class StateResetPassword {
  */
 class StateLoggedIn {
   static async login(connection, user, name) {
+    // Generate a login token and then finish logging in
     const token = await security.generateToken();
-
-    // TODO actually record token
-
-    connection.setState(new StateLoggedIn(connection, user, name, token));
+    await requests.setAuthToken(user, token);
+    connection.setState(
+      new StateLoggedIn(connection, user, name, token));
   }
 
   constructor(connection, user, name, token) {
