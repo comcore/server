@@ -76,7 +76,7 @@ async function testGetModuleInfo(user, module) {
 }
 
 
-//testCreateTask("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "6060f1e73d312875a4a74e28", Date.now(), "Test Task3")
+//testCreateTask("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "6060f1e73d312875a4a74e28", Date.now(), "Test NOW")
 async function testCreateTask(user, group, modId, timestamp, description) {
   await requests.initializeDatabase();
   const result = await requests.createTask(user, group, modId, timestamp, description);
@@ -129,5 +129,21 @@ async function testSetAuthToken(email, authToken) {
   await requests.initializeDatabase();
   const result = await requests.setAuthToken(email, authToken);
   //console.log(result);
+  await requests.closeDatabase();
+}
+
+//testSetInProgress("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "6060f1e73d312875a4a74e28", 2, "604a7dfc847fde3dfcf17d8d")
+async function testSetInProgress(user, group, modId, intTaskId, inProgUser) {
+  await requests.initializeDatabase();
+  const result = await requests.setInProgress(user, group, modId, intTaskId, inProgUser);
+  //console.log(result);
+  await requests.closeDatabase();
+}
+
+//testGetInProgress("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "6060f1e73d312875a4a74e28", 1)
+async function testGetInProgress(user, group, modId, intTaskId) {
+  await requests.initializeDatabase();
+  const result = await requests.getInProgress(user, group, modId, intTaskId);
+  console.log(result);
   await requests.closeDatabase();
 }
