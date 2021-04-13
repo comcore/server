@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29556";
+//const url = "mongodb://localhost:29179";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -923,6 +923,7 @@ async function createTask(user, group, modId, timestamp, description) {
     inProgress: null,
     completed: false,
   };
+
   await db.collection("Tasks").insertOne(newObj);
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
   return newId;
@@ -1041,23 +1042,38 @@ async function setAuthToken(email, authToken) {
 }
 
 /*
- * Look up an account by userID and taskID (internal ID). If the task doesn't exist, return null otherwise return string of UserID
+ * Look up an account by userID and taskID (internal ID). If the task doesn't exist, return null otherwise return string of UserID. if no one is assigned, will return empty string
  */
 async function getInProgress(user, group, modId, intTaskId) {
   await checkUserInGroup(user, group);
   await checkModuleInGroup('task', modId, group);
 
   const result = await db.collection("Tasks")
-    .findOne({ modId: modId, taskId: intTaskId}, { projection: {_id: 0, inProgress: 1} });
+    .findOne({ modId: ObjectId(modId), taskId: intTaskId}, { projection: {_id: 0, inProgress: 1} });
 
   if (result === null) {
     throw new RequestError('Task does not exist');
   }
 
-  return result.inProgress.toHexString;
+  if (result.inProgress === null) {
+    return "";
+  }
+
+  return result.inProgress.toHexString();
 }
 
+/*
+ * Set InProgress
+ */
+async function setInProgress(user, group, modId, intTaskId, inProgUser) {
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('task', modId, group);
 
+  await db.collection("Tasks")
+    .updateOne({ modId: ObjectId(modId), taskId: intTaskId}, { $set: { "inProgress": ObjectId(inProgUser) }});
+
+  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+}
 
 module.exports = {
   RequestError,
@@ -1098,6 +1114,6 @@ module.exports = {
   deleteTask,
   getAuthToken,
   setAuthToken,
-  //setInProgress,
   getInProgress,
+  setInProgress,
 };
