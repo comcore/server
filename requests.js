@@ -920,6 +920,7 @@ async function createTask(user, group, modId, timestamp, description) {
     taskId: newId,
     description: description,
     time: timestamp,
+    inProgress: null,
     completed: false,
   };
   await db.collection("Tasks").insertOne(newObj);
@@ -942,6 +943,7 @@ async function createTask(user, group, modId, timestamp, description) {
  *   timestamp:   the UNIX timestamp representing when the message was sent,
  *   description: the description of the task as a string,
  *   completed:   the status of the task,
+ *   inProgress:  the user ID of the inProgress User
  * }
  */
 async function getTasks(user, group, modId) {
@@ -963,6 +965,7 @@ async function getTasks(user, group, modId) {
     timestamp: result.time,
     description: result.description,
     completed: result.completed,
+    inProgress: result.inProgress,
   }));
 }
 
@@ -982,6 +985,7 @@ async function setTaskCompletion(user, group, modId, task, timestamp, status) {
     $set: {
       time: timestamp,
       completed: status,
+      inProgress: null,
     }
   });
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
@@ -1036,6 +1040,28 @@ async function setAuthToken(email, authToken) {
     .updateOne({ emailAdr: email }, { $set: { "authToken": authToken } });
 }
 
+// /*
+//  * Look up an account by email. If the account doesn't exist, return null. Otherwise return auth token
+//  */
+// async function getInProgress(task) {
+//   const result = await db.collection("Users")
+//     .findOne({ emailAdr: email }, { projection: { _id: 0, authToken: 1 } });
+//
+//   if (result === null) {
+//     throw new RequestError('user does not exist');
+//   }
+//
+//   return result.authToken;
+// }
+//
+// /*
+//  * Set auth token
+//  */
+// async function setAuthToken(email, authToken) {
+//   await db.collection("Users")
+//     .updateOne({ emailAdr: email }, { $set: { "authToken": authToken } });
+// }
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1075,4 +1101,6 @@ module.exports = {
   deleteTask,
   getAuthToken,
   setAuthToken,
+  //setInProgress,
+  //getInProgress,
 };
