@@ -1040,27 +1040,24 @@ async function setAuthToken(email, authToken) {
     .updateOne({ emailAdr: email }, { $set: { "authToken": authToken } });
 }
 
-// /*
-//  * Look up an account by email. If the account doesn't exist, return null. Otherwise return auth token
-//  */
-// async function getInProgress(task) {
-//   const result = await db.collection("Users")
-//     .findOne({ emailAdr: email }, { projection: { _id: 0, authToken: 1 } });
-//
-//   if (result === null) {
-//     throw new RequestError('user does not exist');
-//   }
-//
-//   return result.authToken;
-// }
-//
-// /*
-//  * Set auth token
-//  */
-// async function setAuthToken(email, authToken) {
-//   await db.collection("Users")
-//     .updateOne({ emailAdr: email }, { $set: { "authToken": authToken } });
-// }
+/*
+ * Look up an account by userID and taskID (internal ID). If the task doesn't exist, return null otherwise return string of UserID
+ */
+async function getInProgress(user, group, modId, intTaskId) {
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('task', modId, group);
+
+  const result = await db.collection("Tasks")
+    .findOne({ modId: modId, taskId: intTaskId}, { projection: {_id: 0, inProgress: 1} });
+
+  if (result === null) {
+    throw new RequestError('Task does not exist');
+  }
+
+  return result.inProgress.toHexString;
+}
+
+
 
 module.exports = {
   RequestError,
@@ -1102,5 +1099,5 @@ module.exports = {
   getAuthToken,
   setAuthToken,
   //setInProgress,
-  //getInProgress,
+  getInProgress,
 };
