@@ -1132,6 +1132,47 @@ async function createEvent(user, group, modId, startTime, endTime, description) 
   return newId;
 }
 
+/*
+ * Get a set of events in the cal. Make sure that the user ID is part of the group, and that
+ * the module is part of the group before getting the list, and throw a RequestError if the request
+ * is invalid.
+ *
+ * The event IDs and timestamps are numbers, not strings.
+ *
+ * All events should be returned, with each entry in the array looking like:
+ *
+ * {
+ *   id:          the sequential ID of the event,
+ *   owner:       the user ID of the owner,
+ *   description: the description of the task as a string,
+ *   start:       the UNIX timestamp representing when the event starts,
+ *   end:         the UNIX timestamp representing when the event ends,
+ *   approved:    the approval status of the task,
+ * }
+ */
+async function getEvents(user, group, modId) {
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('cal', modId, group);
+
+  const query = {
+    modId: ObjectId(modId),
+  };
+
+  const result = await db.collection("Events")
+    .find(query, { projection: { _id: 0, modId: 0 } })
+    .sort({eventId: 1})
+    .toArray();
+
+  return result.map(result => ({
+    id: result.eventId,
+    owner: result.userId.toHexString(),
+    description: result.description,
+    start: result.start,
+    end: result.end,
+    approved: result.approved,
+  }));
+}
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1174,7 +1215,7 @@ module.exports = {
   getInProgress,
   setInProgress,
   createEvent,
-  // getEvent,
+  getEvents,
   // deleteEvent,
   // approveEvent,
 };

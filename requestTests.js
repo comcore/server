@@ -155,3 +155,11 @@ async function testCreateEvent(user, group, modId, startTime, endTime, descripti
   console.log(result);
   await requests.closeDatabase();
 }
+
+//testGetEvents("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "607718f3e8371570946267b5")
+async function testGetEvents(user, group, modId) {
+  await requests.initializeDatabase();
+  const result = await requests.getEvents(user, group, modId);
+  console.log(result);
+  await requests.closeDatabase();
+}
