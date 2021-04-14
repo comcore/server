@@ -1173,6 +1173,22 @@ async function getEvents(user, group, modId) {
   }));
 }
 
+/*
+ * Delete event in module. Make sure that the user ID is part of the group, that
+ * the module is part of the group, throw a RequestError if the request is invalid.
+ */
+async function deleteEvent(user, group, modId, eventId) {
+  await checkModuleInGroup('cal', modId, group);
+
+  const muted = await getMuted(user, group);
+  if (muted) {
+    throw new RequestError("user is muted");
+  }
+
+  await db.collection("Events").deleteOne({ eventId: eventId });
+  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+}
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1216,6 +1232,6 @@ module.exports = {
   setInProgress,
   createEvent,
   getEvents,
-  // deleteEvent,
+  deleteEvent,
   // approveEvent,
 };

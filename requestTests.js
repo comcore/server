@@ -163,3 +163,11 @@ async function testGetEvents(user, group, modId) {
   console.log(result);
   await requests.closeDatabase();
 }
+
+//testDeleteEvent("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "607718f3e8371570946267b5", 3)
+async function testDeleteEvent(user, group, modId, eventId) {
+  await requests.initializeDatabase();
+  const result = await requests.deleteEvent(user, group, modId, eventId);
+  //console.log(result);
+  await requests.closeDatabase();
+}
