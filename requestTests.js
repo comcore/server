@@ -171,3 +171,11 @@ async function testDeleteEvent(user, group, modId, eventId) {
   //console.log(result);
   await requests.closeDatabase();
 }
+
+testApproveEvent("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "607718f3e8371570946267b5", 3, false)
+async function testApproveEvent(user, group, modId, eventId, approved) {
+  await requests.initializeDatabase();
+  const result = await requests.approveEvent(user, group, modId, eventId, approved);
+  //console.log(result);
+  await requests.closeDatabase();
+}

@@ -1189,6 +1189,24 @@ async function deleteEvent(user, group, modId, eventId) {
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
+/*
+ * Approve event in module. Make sure that the user ID is part of the group, that
+ * the module is part of the group, throw a RequestError if the request is invalid.
+ */
+async function approveEvent(user, group, modId, eventId, approved) {
+
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('cal', modId, group);
+  await checkBoolean(approved);
+
+  if (!['owner', 'moderator'].includes(await getRole(user, group))) {
+    throw new RequestError("you do not have permission to approve this event");
+  }
+
+  await db.collection("Events").updateOne({modId: ObjectId(modId), eventId: eventId}, {$set: {approved: approved}});
+  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+}
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1233,5 +1251,5 @@ module.exports = {
   createEvent,
   getEvents,
   deleteEvent,
-  // approveEvent,
+  approveEvent,
 };
