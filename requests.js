@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29179";
+//const url = "mongodb://localhost:29207";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -920,8 +920,9 @@ async function createTask(user, group, modId, timestamp, description) {
     taskId: newId,
     description: description,
     time: timestamp,
-    inProgress: null,
     completed: false,
+    completedBy: null,
+    inProgress: null,
   };
 
   await db.collection("Tasks").insertOne(newObj);
@@ -944,6 +945,7 @@ async function createTask(user, group, modId, timestamp, description) {
  *   timestamp:   the UNIX timestamp representing when the message was sent,
  *   description: the description of the task as a string,
  *   completed:   the status of the task,
+ *   completedBy: the User ID of the completed By user
  *   inProgress:  the user ID of the inProgress User
  * }
  */
@@ -966,6 +968,7 @@ async function getTasks(user, group, modId) {
     timestamp: result.time,
     description: result.description,
     completed: result.completed,
+    completedBy: result.completedBy,
     inProgress: result.inProgress,
   }));
 }
@@ -986,6 +989,7 @@ async function setTaskCompletion(user, group, modId, task, timestamp, status) {
     $set: {
       time: timestamp,
       completed: status,
+      completedBy: ObjectId(user),
       inProgress: null,
     }
   });
@@ -1000,6 +1004,7 @@ async function setTaskCompletion(user, group, modId, task, timestamp, status) {
     timestamp: result.time,
     description: result.description,
     completed: result.completed,
+    completedBy: result.completedBy,
   };
 }
 
@@ -1116,4 +1121,8 @@ module.exports = {
   setAuthToken,
   getInProgress,
   setInProgress,
+  // createEvent,
+  // getEvent,
+  // setTaskCompletion,
+  // deleteTask,
 };
