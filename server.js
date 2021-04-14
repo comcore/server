@@ -74,18 +74,26 @@ class StateLoggedOut {
           return { status: 'ENTER_CODE' };
         }
 
-        // Transition to the logged in state
+        // Generate a login token and transition to the logged in state
         await StateLoggedIn.login(this.connection, account.id, account.name);
 
         return { status: 'SUCCESS' };
       }
 
       case 'connect': {
-        const { token } = data;
+        const { id, token } = data;
 
-        // TODO check if the token is valid
+        // Check that the token is correct
+        const expectedToken = await requests.getAuthToken(id);
+        if (token !== expectedToken) {
+          this.connection.forceLogout();
+          return {};
+        }
 
-        this.connection.forceLogout();
+        // Transition to the logged in state with the specific token
+        const name = await requests.getUserName(id);
+        this.connection.setState(
+          new StateLoggedIn(this.connection, id, name, token));
 
         return {};
       }
@@ -173,7 +181,7 @@ class StateConfirmEmail {
             // Finish account creation and return the user ID and name
             const { id, name } = await server.codeManager.finishCreation(this.email);
 
-            // Transition to the logged in state
+            // Generate a login token and transition to the logged in state
             await StateLoggedIn.login(this.connection, id, name);
 
             break;
@@ -183,6 +191,7 @@ class StateConfirmEmail {
             // Transition to the logged in state
             const name = await requests.getUserName(codeData);
 
+            // Generate a login token and transition to the logged in state
             await StateLoggedIn.login(this.connection, codeData, name);
 
             break;
@@ -228,6 +237,7 @@ class StateResetPassword {
         // Transition to the logged in state
         const name = await requests.getUserName(this.user);
 
+        // Generate a login token and transition to the logged in state
         await StateLoggedIn.login(this.connection, this.user, name);
 
         return { reset: true };
@@ -242,11 +252,11 @@ class StateResetPassword {
  */
 class StateLoggedIn {
   static async login(connection, user, name) {
+    // Generate a login token and then finish logging in
     const token = await security.generateToken();
-
-    // TODO actually record token
-
-    connection.setState(new StateLoggedIn(connection, user, name, token));
+    await requests.setAuthToken(user, token);
+    connection.setState(
+      new StateLoggedIn(connection, user, name, token));
   }
 
   constructor(connection, user, name, token) {
@@ -513,11 +523,11 @@ class StateLoggedIn {
         };
 
         // Send the message as a notification as well
-        server.forwardGroup(this.user, group, 'message', {
+        await server.forwardGroup(this.user, group, 'message', {
           group,
           chat,
           ...message,
-        });
+        }, this.connection);
 
         // Return the message, but without data the client knows
         return message;
@@ -560,11 +570,11 @@ class StateLoggedIn {
         };
 
         // Send the update as a notification as well
-        server.forwardGroup(this.user, group, 'messageUpdated', {
+        await server.forwardGroup(this.user, group, 'messageUpdated', {
           group,
           chat,
           ...entry,
-        });
+        }, this.connection);
 
         // Return the message, but without data the client knows
         return entry;
@@ -589,11 +599,11 @@ class StateLoggedIn {
         };
 
         // Send the task as a notification as well
-        server.forwardGroup(this.user, group, 'task', {
+        await server.forwardGroup(this.user, group, 'task', {
           group,
           taskList,
           ...task,
-        });
+        }, this.connection);
 
         // Return the task, but without data the client knows
         return task;
@@ -613,11 +623,11 @@ class StateLoggedIn {
           this.user, group, taskList, id, timestamp, completed);
 
         // Send the update as a notification as well
-        server.forwardGroup(this.user, group, 'taskUpdated', {
+        await server.forwardGroup(this.user, group, 'taskUpdated', {
           group,
           taskList,
           ...entry,
-        });
+        }, this.connection);
 
         // Return the task, but without data the client knows
         return entry;
@@ -629,11 +639,11 @@ class StateLoggedIn {
         await requests.deleteTask(this.user, group, taskList, id);
 
         // Send the update as a notification as well
-        server.forwardGroup(this.user, group, 'taskDeleted', {
+        await server.forwardGroup(this.user, group, 'taskDeleted', {
           group,
           taskList,
           id,
-        });
+        }, this.connection);
 
         return {};
       }
@@ -930,27 +940,27 @@ class Server {
   /*
    * Forward a notification to all connections of a user.
    */
-  forward(id, kind, data) {
+  forward(id, kind, data, exceptFor) {
     const connections = this.loggedIn.get(id);
     if (!connections) {
       return;
     }
 
     for (const connection of connections) {
-      connection.send(kind, data);
+      if (connection !== exceptFor) {
+        connection.send(kind, data);
+      }
     }
   }
 
   /*
-   * Forward a notification to everyone in a group except a specific user.
+   * Forward a notification to everyone in a group except a specific connection.
    */
-  async forwardGroup(user, group, kind, data) {
+  async forwardGroup(user, group, kind, data, exceptFor) {
     const groupUsers = await requests.getUsers(user, group);
 
     for (const groupUser of groupUsers) {
-      if (groupUser.id !== user) {
-        this.forward(groupUser.id, kind, data);
-      }
+      this.forward(groupUser.id, kind, data, exceptFor);
     }
   }
 }

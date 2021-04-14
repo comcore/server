@@ -1025,11 +1025,11 @@ async function deleteTask(user, group, modId, task) {
 }
 
 /*
- * Look up an account by email. If the account doesn't exist, return null. Otherwise return auth token
+ * Get the authentication token for a user.
  */
-async function getAuthToken(email) {
+async function getAuthToken(user) {
   const result = await db.collection("Users")
-    .findOne({ emailAdr: email }, { projection: { _id: 0, authToken: 1 } });
+    .findOne({ _id: ObjectId(user) }, { projection: { _id: 0, authToken: 1 } });
 
   if (result === null) {
     throw new RequestError('user does not exist');
@@ -1039,11 +1039,11 @@ async function getAuthToken(email) {
 }
 
 /*
- * Set auth token
+ * Set the authentication token for a user.
  */
-async function setAuthToken(email, authToken) {
+async function setAuthToken(user, authToken) {
   await db.collection("Users")
-    .updateOne({ emailAdr: email }, { $set: { "authToken": authToken } });
+    .updateOne({ _id: ObjectId(user) }, { $set: { "authToken": authToken } });
 }
 
 /*
