@@ -1111,11 +1111,7 @@ async function createEvent(user, group, modId, startTime, endTime, description) 
     newId = maxId[0].eventId + 1;
   }
 
-  let approval = false;
-
-  if (['owner', 'moderator'].includes(await getRole(user, group))) {
-    approval = true;
-  }
+  const approval = ['owner', 'moderator'].includes(await getRole(user, group));
 
   var newObj = {
     modId: ObjectId(modId),
@@ -1194,14 +1190,9 @@ async function deleteEvent(user, group, modId, eventId) {
  * the module is part of the group, throw a RequestError if the request is invalid.
  */
 async function approveEvent(user, group, modId, eventId, approved) {
-
-  await checkUserInGroup(user, group);
+  await checkModerator(user, group);
   await checkModuleInGroup('cal', modId, group);
   await checkBoolean(approved);
-
-  if (!['owner', 'moderator'].includes(await getRole(user, group))) {
-    throw new RequestError("you do not have permission to approve this event");
-  }
 
   await db.collection("Events").updateOne({modId: ObjectId(modId), eventId: eventId}, {$set: {approved: approved}});
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
