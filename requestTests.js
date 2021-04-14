@@ -51,7 +51,7 @@ async function testGetMessages(user, group, chat, after, before) {
 }
 
 
-//testCreateModule("605e5fe9b7afe56be0102ad3","6060aa048dafb782947c6f2e","Test TaskLsit", "task")
+//testCreateModule("605e5fe9b7afe56be0102ad3","6060aa048dafb782947c6f2e","Test Calendar", "cal")
 async function testCreateModule(user, group, name, type) {
   await requests.initializeDatabase();
   const result = await requests.createModule(user, group, name, type);
@@ -144,6 +144,14 @@ async function testSetInProgress(user, group, modId, intTaskId, inProgUser) {
 async function testGetInProgress(user, group, modId, intTaskId) {
   await requests.initializeDatabase();
   const result = await requests.getInProgress(user, group, modId, intTaskId);
+  console.log(result);
+  await requests.closeDatabase();
+}
+
+//testCreateEvent("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "607718f3e8371570946267b5", Date.now(), Date.now()+1000, "Hello Meeting")
+async function testCreateEvent(user, group, modId, startTime, endTime, description) {
+  await requests.initializeDatabase();
+  const result = await requests.createEvent(user, group, modId, startTime, endTime, description);
   console.log(result);
   await requests.closeDatabase();
 }
