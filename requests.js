@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29207";
+//const url = "mongodb://localhost:29738";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -1080,6 +1080,58 @@ async function setInProgress(user, group, modId, intTaskId, inProgUser) {
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
+/*
+ * Create an event in a cal module in a group. Make sure that the user ID is part of the group, that
+ * the module is part of the group, throw a RequestError if the request is invalid.
+ *
+ * Events should be assigned a sequential ID starting with 1 in each module, such that the first
+ * event in a module has ID 1, then the second has 2, then 3, 4, and so on. The database should
+ * store enough information to satisfy the requests in getEvents(). 2 UNIX timestamps are provided
+ * in the format of number of milliseconds since January 1, 1970. The event ID and timestamps are
+ * numbers, not strings.
+ *
+ * Return the event ID of the newly added event.
+ */
+async function createEvent(user, group, modId, startTime, endTime, description) {
+  await checkModuleInGroup('cal', modId, group);
+
+  const muted = await getMuted(user, group);
+  if (muted) {
+    throw new RequestError("user is muted");
+  }
+
+  const maxId = await db.collection("Events")
+    .find({modId: ObjectId(modId)}, { projection: {_id:0, eventId: 1}})
+    .sort({eventId:-1})
+    .limit(1)
+    .toArray();
+
+  let newId = 1;
+  if (maxId.length !== 0) {
+    newId = maxId[0].eventId + 1;
+  }
+
+  let approval = false;
+
+  if (['owner', 'moderator'].includes(await getRole(user, group))) {
+    approval = true;
+  }
+
+  var newObj = {
+    modId: ObjectId(modId),
+    userId: ObjectId(user),
+    eventId: newId,
+    description: description,
+    start: startTime,
+    end: endTime,
+    approved: approval,
+  };
+
+  await db.collection("Events").insertOne(newObj);
+  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+  return newId;
+}
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1121,8 +1173,8 @@ module.exports = {
   setAuthToken,
   getInProgress,
   setInProgress,
-  // createEvent,
+  createEvent,
   // getEvent,
-  // setTaskCompletion,
-  // deleteTask,
+  // deleteEvent,
+  // approveEvent,
 };
