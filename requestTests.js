@@ -76,7 +76,7 @@ async function testGetModuleInfo(user, module) {
 }
 
 
-//testCreateTask("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "6060f1e73d312875a4a74e28", Date.now(), "Test NOW")
+//testCreateTask("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "6060f1e73d312875a4a74e28", Date.now(), "Test Later")
 async function testCreateTask(user, group, modId, timestamp, description) {
   await requests.initializeDatabase();
   const result = await requests.createTask(user, group, modId, timestamp, description);
@@ -92,15 +92,15 @@ async function testGetTasks(user, group, modId) {
   await requests.closeDatabase();
 }
 
-//testSetTaskCompletion("6060f1e73d312875a4a74e28", "6060f60bac2c8e7600954fea", true)
-async function testSetTaskCompletion(modId, task, status) {
+//testSetTaskCompletion("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "6060f1e73d312875a4a74e28", 3, Date.now(), true)
+async function testSetTaskCompletion(user, group, modId, task, timestamp, status) {
   await requests.initializeDatabase();
-  const result = await requests.setTaskCompletion(modId, task,  status);
+  const result = await requests.setTaskCompletion(user, group, modId, task, timestamp, status);
   //console.log(result);
   await requests.closeDatabase();
 }
 
-//testDeleteTask("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "6060f1e73d312875a4a74e28", "6060f60bac2c8e7600954fea")
+//testDeleteTask("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "6060f1e73d312875a4a74e28", 1)
 async function testDeleteTask(user, group, modId, task) {
   await requests.initializeDatabase();
   const result = await requests.deleteTask(user, group, modId, task);
