@@ -648,6 +648,58 @@ class StateLoggedIn {
         return {};
       }
 
+      case 'addEvent': {
+        const { group, calendar, description, start, end } = data;
+
+        if (!description) {
+          throw new RequestError('event description cannot be empty');
+        } else if (start < 1) {
+          throw new RequestError('event start timestamp cannot be less than 1');
+        } else if (end < start) {
+          throw new RequestError('event end cannot come before start');
+        }
+
+        const { id, approved } = await requests.createEvent(
+          this.user, group, calendar, start, end, description);
+
+        const event = {
+          id,
+          owner: this.user,
+          description,
+          start,
+          end,
+          approved,
+        };
+
+        // Send the event as a notification as well
+        await server.forwardGroup(this.user, group, 'event', {
+          group,
+          calendar,
+          ...event,
+        }, this.connection);
+
+        // Return the event, but without data the client knows
+        return event;
+      }
+
+      case 'getEvents': {
+        const { group, calendar } = data;
+        const events = await requests.getEvents(this.user, group, calendar);
+        return { events };
+      }
+
+      case 'approveEvent': {
+        const { group, calendar, id, approve } = data;
+        await requests.approveEvent(this.user, group, calendar, id, approve);
+        return {};
+      }
+
+      case 'deleteEvent': {
+        const { group, calendar, id } = data;
+        await requests.deleteEvent(this.user, group, calendar, id);
+        return {};
+      }
+
       default:
         throw new RequestError('unknown request kind: ' + kind);
     }

@@ -1090,7 +1090,7 @@ async function setInProgress(user, group, modId, intTaskId, inProgUser) {
  * in the format of number of milliseconds since January 1, 1970. The event ID and timestamps are
  * numbers, not strings.
  *
- * Return the event ID of the newly added event.
+ * Return the event ID of the newly added event and whether it was approved.
  */
 async function createEvent(user, group, modId, startTime, endTime, description) {
   await checkModuleInGroup('cal', modId, group);
@@ -1125,7 +1125,7 @@ async function createEvent(user, group, modId, startTime, endTime, description) 
 
   await db.collection("Events").insertOne(newObj);
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
-  return newId;
+  return { id: newId, approved: approval };
 }
 
 /*
@@ -1189,12 +1189,19 @@ async function deleteEvent(user, group, modId, eventId) {
  * Approve event in module. Make sure that the user ID is part of the group, that
  * the module is part of the group, throw a RequestError if the request is invalid.
  */
-async function approveEvent(user, group, modId, eventId, approved) {
+async function approveEvent(user, group, modId, eventId, approve) {
   await checkModerator(user, group);
   await checkModuleInGroup('cal', modId, group);
-  await checkBoolean(approved);
+  await checkBoolean(approve);
 
-  await db.collection("Events").updateOne({modId: ObjectId(modId), eventId: eventId}, {$set: {approved: approved}});
+  if (approve) {
+    await db.collection("Events")
+      .updateOne({modId: ObjectId(modId), eventId: eventId}, {$set: {approved: true}});
+  } else {
+    await db.collection("Events")
+      .deleteOne({modId: ObjectId(modId), eventId: eventId, approved: false});
+  }
+
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
