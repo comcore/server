@@ -596,6 +596,8 @@ class StateLoggedIn {
           timestamp,
           description,
           completed: false,
+          completedBy: null,
+          inProgress: null,
         };
 
         // Send the task as a notification as well
@@ -616,11 +618,11 @@ class StateLoggedIn {
       }
 
       case 'updateTask': {
-        const { group, taskList, id, completed } = data;
+        const { group, taskList, id, completed, inProgress } = data;
 
         const timestamp = Date.now();
-        const entry = await requests.setTaskCompletion(
-          this.user, group, taskList, id, timestamp, completed);
+        const entry = await requests.updateTask(
+          this.user, group, taskList, id, timestamp, completed, inProgress);
 
         // Send the update as a notification as well
         await server.forwardGroup(this.user, group, 'taskUpdated', {

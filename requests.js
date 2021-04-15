@@ -974,10 +974,11 @@ async function getTasks(user, group, modId) {
 }
 
 /*
- * Updates a task's completion status. Returns the new task entry.
+ * Updates a task's status. Returns the new task entry.
  */
-async function setTaskCompletion(user, group, modId, task, timestamp, status) {
-  checkBoolean(status);
+async function updateTask(user, group, modId, task, timestamp, completed, inProgress) {
+  checkBoolean(completed);
+  checkBoolean(inProgress);
   await checkModuleInGroup('task', modId, group);
 
   const muted = await getMuted(user, group);
@@ -988,9 +989,9 @@ async function setTaskCompletion(user, group, modId, task, timestamp, status) {
   await db.collection("Tasks").updateOne({ modId: ObjectId(modId), taskId: task }, {
     $set: {
       time: timestamp,
-      completed: status,
+      completed,
       completedBy: ObjectId(user),
-      inProgress: null,
+      inProgress: inProgress ? ObjectId(user) : null,
     }
   });
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
@@ -1004,7 +1005,8 @@ async function setTaskCompletion(user, group, modId, task, timestamp, status) {
     timestamp: result.time,
     description: result.description,
     completed: result.completed,
-    completedBy: result.completedBy,
+    completedBy: result.completedBy == null ? null : result.completedBy.toHexString(),
+    inProgress: result.inProgress == null ? null : result.inProgress.toHexString(),
   };
 }
 
@@ -1044,40 +1046,6 @@ async function getAuthToken(user) {
 async function setAuthToken(user, authToken) {
   await db.collection("Users")
     .updateOne({ _id: ObjectId(user) }, { $set: { "authToken": authToken } });
-}
-
-/*
- * Look up an account by userID and taskID (internal ID). If the task doesn't exist, return null otherwise return string of UserID. if no one is assigned, will return empty string
- */
-async function getInProgress(user, group, modId, intTaskId) {
-  await checkUserInGroup(user, group);
-  await checkModuleInGroup('task', modId, group);
-
-  const result = await db.collection("Tasks")
-    .findOne({ modId: ObjectId(modId), taskId: intTaskId}, { projection: {_id: 0, inProgress: 1} });
-
-  if (result === null) {
-    throw new RequestError('Task does not exist');
-  }
-
-  if (result.inProgress === null) {
-    return "";
-  }
-
-  return result.inProgress.toHexString();
-}
-
-/*
- * Set InProgress
- */
-async function setInProgress(user, group, modId, intTaskId, inProgUser) {
-  await checkUserInGroup(user, group);
-  await checkModuleInGroup('task', modId, group);
-
-  await db.collection("Tasks")
-    .updateOne({ modId: ObjectId(modId), taskId: intTaskId}, { $set: { "inProgress": ObjectId(inProgUser) }});
-
-  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
 /*
@@ -1240,12 +1208,10 @@ module.exports = {
   setModuleEnabled,
   createTask,
   getTasks,
-  setTaskCompletion,
+  updateTask,
   deleteTask,
   getAuthToken,
   setAuthToken,
-  getInProgress,
-  setInProgress,
   createEvent,
   getEvents,
   deleteEvent,
