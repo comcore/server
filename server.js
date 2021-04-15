@@ -693,12 +693,29 @@ class StateLoggedIn {
       case 'approveEvent': {
         const { group, calendar, id, approve } = data;
         await requests.approveEvent(this.user, group, calendar, id, approve);
+
+        // Send the update as a notification as well
+        const message = approve ? 'eventApproved' : 'eventDeleted';
+        await server.forwardGroup(this.user, group, message, {
+          group,
+          calendar,
+          id,
+        }, this.connection);
+
         return {};
       }
 
       case 'deleteEvent': {
         const { group, calendar, id } = data;
         await requests.deleteEvent(this.user, group, calendar, id);
+
+        // Send the update as a notification as well
+        await server.forwardGroup(this.user, group, 'eventDeleted', {
+          group,
+          calendar,
+          id,
+        }, this.connection);
+
         return {};
       }
 
