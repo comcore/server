@@ -305,6 +305,17 @@ class StateLoggedIn {
         return { id };
       }
 
+      case 'createSubGroup': {
+        const { group, name, users } = data;
+
+        if (!name) {
+          throw new RequestError('group name cannot be empty');
+        }
+
+        const id = await requests.createSubGroup(this.user, group, name, users);
+        return { id };
+      }
+
       case 'getGroups': {
         const groups = await requests.getGroups(this.user);
         return { groups };
@@ -861,7 +872,15 @@ class Connection {
    */
   async handleRequest(request) {
     // Parse the request as JSON
-    const { kind, data } = JSON.parse(request);
+    let parsed;
+    try {
+      parsed = JSON.parse(request);
+    } catch {
+      throw new RequestError('invalid JSON');
+    }
+
+    // Extract the kind and data of the request
+    const { kind, data } = parsed;
 
     // Make sure that kind is non-empty (otherwise it could give a strange error message)
     if (!kind) {

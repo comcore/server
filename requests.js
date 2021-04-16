@@ -170,6 +170,54 @@ async function createGroup(user, name) {
 }
 
 /*
+ * Create a sub-group with the specified users and return the group ID.
+ */
+async function createSubGroup(user, group, name, users) {
+  // Make sure the user is the owner of the group
+  const role = await getRole(user, group);
+  if (role !== 'owner') {
+    throw new RequestError('only owners can create sub-groups');
+  }
+
+  // Create a set of user ID strings to include in the group
+  const userSet = new Set();
+  userSet.add(user);
+  for (const user of users) {
+    userSet.add(user.id);
+  }
+
+  // Create an array of ObjectIds for each user
+  const userArray = [];
+  for (const user of userSet) {
+    userArray.push(ObjectId(user));
+  }
+
+  // Get the existing info of the group
+  const groupInfo = await db.collection("Groups")
+    .findOne({ _id: ObjectId(group) }, { projection: { _id: 0, grpUsers: 1 } });
+
+  // Filter to only include the specified users
+  const grpUsers = groupInfo.grpUsers.filter(u => userSet.has(u.user.toHexString()));
+
+  // Create a new group with only the specified users
+  const result = await db.collection("Groups").insertOne({
+    name,
+    grpUsers,
+    modDate: Date.now(),
+    modules: [],
+  });
+
+  // Get the ID of the new group
+  const id = result.insertedId;
+
+  // Add the group to all of the users
+  await db.collection("Users")
+    .updateMany({ _id: { $in: userArray } }, { $push: { groups: id } });
+
+  return id.toHexString();
+}
+
+/*
  * Get a list of the groups which a user is part of. Each entry in the array should look like:
  *
  * {
@@ -567,6 +615,47 @@ async function replyToInvite(user, group, accept) {
 }
 
 /*
+ * Delete a group if there is only one user left. Return true if deleted, false otherwise.
+ */
+async function deleteGroup(user, group) {
+  const userId = ObjectId(user);
+  const groupId = ObjectId(group);
+
+  // Try to delete a group that has no users other than the user
+  const query = {
+    _id: groupId,
+    $and: [
+      { grpUsers: { $size: 1 } },
+      { "grpUsers.user": userId },
+    ],
+  };
+  const result = await db.collection("Groups")
+    .findOneAndDelete(query, { projection: { _id: 0, modules: 1 } });
+
+  // Check if the deletion was successful
+  if (!result.value) {
+    return false;
+  }
+
+  // Remove the group from the user
+  await db.collection("Users")
+    .updateOne({ _id: userId }, { $pull: {  groups: groupId } });
+
+  // Remove direct invites and invite links
+  await db.collection("Invites").deleteMany({ group: groupId });
+  await db.collection("GroupLinks").deleteMany({ group: groupId });
+
+  // Remove all modules and items
+  const inModules = { $in: result.value.modules };
+  await db.collection("Modules").deleteMany({ _id: inModules });
+  await db.collection("Messages").deleteMany({ modId: inModules });
+  await db.collection("Tasks").deleteMany({ modId: inModules });
+  await db.collection("Events").deleteMany({ modId: inModules });
+
+  return true;
+}
+
+/*
  * Remove the user from the group.
  */
 async function removeFromGroup(user, group) {
@@ -579,7 +668,7 @@ async function removeFromGroup(user, group) {
 
   // Remove the group from the user
   await db.collection("Users")
-    .updateOne({ _id: userId }, { $pull: {groups: groupId} });
+    .updateOne({ _id: userId }, { $pull: { groups: groupId } });
 }
 
 /*
@@ -587,11 +676,18 @@ async function removeFromGroup(user, group) {
  * groups must have an owner. Throw a RequestError if the request is invalid.
  */
 async function leaveGroup(user, group) {
-  const role = await getRole(user, group);
-  if (role === 'owner') {
-    throw new RequestError('owner cannot leave the group');
+  // Delete the group if the user is the only member
+  if (await deleteGroup(user, group)) {
+    return;
   }
 
+  // Make sure the user isn't the owner
+  const role = await getRole(user, group);
+  if (role === 'owner') {
+    throw new RequestError('owner cannot leave group');
+  }
+
+  // Remove the user from the group
   await removeFromGroup(user, group);
 }
 
@@ -628,9 +724,11 @@ async function kick(user, group, targetUser) {
  * check that the two users are different. Throw a RequestError if the request is invalid.
  */
 async function setRole(user, group, targetUser, role) {
-  if(user == targetUser) {
-    throw new RequestError('Error: User and target cannot be the same');
+  checkValidRole(role);
+  if (user == targetUser) {
+    throw new RequestError('user cannot set their own role');
   }
+
   await permissionCheck(user, group, targetUser, 'set role of');
   await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.role" : role, "modDate" : Date.now()} });
   if (role == 'owner') {
@@ -645,10 +743,11 @@ async function setRole(user, group, targetUser, role) {
  * RequestError if the request is invalid.
  */
 async function setMuted(user, group, targetUser, muted) {
-  if(user == targetUser) {
-    throw new RequestError('Error: User and target cannot be the same');
-  }
   checkBoolean(muted);
+  if (user == targetUser) {
+    throw new RequestError('user cannot mute/unmute themselves');
+  }
+
   await permissionCheck(user, group, targetUser, 'mute/unmute');
   await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.muted" : muted, "modDate" : Date.now()} } );
 }
@@ -1183,6 +1282,7 @@ module.exports = {
   getTwoFactor,
   setTwoFactor,
   createGroup,
+  createSubGroup,
   getGroups,
   getGroupInfo,
   getUsers,
