@@ -155,6 +155,7 @@ async function createGroup(user, name) {
       role: "owner",
       muted: false,
     }],
+    requireApproval: false,
     modDate: Date.now(),
     modules: [],
   };
@@ -194,7 +195,7 @@ async function createSubGroup(user, group, name, users) {
 
   // Get the existing info of the group
   const groupInfo = await db.collection("Groups")
-    .findOne({ _id: ObjectId(group) }, { projection: { _id: 0, grpUsers: 1 } });
+    .findOne({ _id: ObjectId(group) }, { projection: { _id: 0, grpUsers: 1, requireApproval: 1 } });
 
   // Filter to only include the specified users
   const grpUsers = groupInfo.grpUsers.filter(u => userSet.has(u.user.toHexString()));
@@ -203,6 +204,7 @@ async function createSubGroup(user, group, name, users) {
   const result = await db.collection("Groups").insertOne({
     name,
     grpUsers,
+    requireApproval,
     modDate: Date.now(),
     modules: [],
   });
@@ -243,6 +245,7 @@ async function getGroups(user) {
  *   name:       the name of the group,
  *   role:       'owner' | 'moderator' | 'user',
  *   muted:      false | true,
+ *   requireApproval: whether approval is required for user's calendar events,
  *   lastUpdate: when the group was last updated
  * }
  */
@@ -255,6 +258,7 @@ async function getGroupInfo(user, groups, lastRefresh) {
       { $project: {
         name: 1,
         modDate: 1,
+        requireApproval: 1,
         grpUsers: { $filter: {
           input: '$grpUsers',
           cond: { $eq: ['$$this.user', ObjectId(user)] },
@@ -271,6 +275,7 @@ async function getGroupInfo(user, groups, lastRefresh) {
         name: groupInfo.name,
         role: userData.role,
         muted: userData.muted,
+        requireApproval: groupInfo.requireApproval,
         lastUpdate: groupInfo.modDate,
       });
     }
@@ -966,6 +971,35 @@ async function getModuleInfo(user, group, modules) {
 }
 
 /*
+ * Check whether approval is required for calendar events by a user in this group.
+ */
+async function getRequireApproval(group) {
+  const result = await db.collection("Groups")
+    .findOne({ _id: ObjectId(group) }, { projection: { _id: 0, requireApproval: 1 } });
+
+  if (!result) {
+    throw new RequestError("group does not exist");
+  }
+
+  return result.requireApproval;
+}
+
+/*
+ * Set whether approval is required for calendar events by a user.
+ */
+async function setRequireApproval(user, group, requireApproval) {
+  checkBoolean(requireApproval);
+  await checkModerator(user, group);
+
+  const result = await db.collection("Groups")
+    .updateOne({ _id: ObjectId(group) }, { $set : { requireApproval } });
+
+  if (result.matchedCount !== 1) {
+    throw new RequestError('group does not exist');
+  }
+}
+
+/*
  * Set whether a module is enabled or disabled.
  */
 async function setModuleEnabled(user, group, modId, enabled) {
@@ -973,7 +1007,6 @@ async function setModuleEnabled(user, group, modId, enabled) {
   await checkModerator(user, group);
 
   const query = { _id: ObjectId(modId), groupId: ObjectId(group) };
-
   const result = await db.collection("Modules")
     .updateOne(query, { $set : { enabled } });
 
@@ -1178,7 +1211,7 @@ async function createEvent(user, group, modId, startTime, endTime, description) 
     newId = maxId[0].eventId + 1;
   }
 
-  const approval = ['owner', 'moderator'].includes(await getRole(user, group));
+  const approved = !(await getRole(user, group) === 'user' && await getRequireApproval(group));
 
   var newObj = {
     modId: ObjectId(modId),
@@ -1187,12 +1220,12 @@ async function createEvent(user, group, modId, startTime, endTime, description) 
     description: description,
     start: startTime,
     end: endTime,
-    approved: approval,
+    approved,
   };
 
   await db.collection("Events").insertOne(newObj);
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
-  return { id: newId, approved: approval };
+  return { id: newId, approved };
 }
 
 /*
@@ -1305,6 +1338,7 @@ module.exports = {
   createModule,
   getModules,
   getModuleInfo,
+  setRequireApproval,
   setModuleEnabled,
   createTask,
   getTasks,

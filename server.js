@@ -340,6 +340,12 @@ class StateLoggedIn {
         return { id };
       }
 
+      case 'setRequireApproval': {
+        const { group, requireApproval } = data;
+        await requests.setRequireApproval(this.user, group, requireApproval);
+        return {};
+      }
+
       case 'setModuleEnabled': {
         const { group, id, enabled } = data;
         await requests.setModuleEnabled(this.user, group, id, enabled);
