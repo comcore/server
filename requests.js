@@ -1089,7 +1089,7 @@ async function setModuleEnabled(user, group, modId, enabled) {
  *
  * Return the message ID of the newly added message.
  */
-async function createTask(user, group, modId, timestamp, description) {
+async function createTask(user, group, modId, timestamp, deadline, description) {
   await checkModuleInGroup('task', modId, group);
 
   const muted = await getMuted(user, group);
@@ -1098,7 +1098,7 @@ async function createTask(user, group, modId, timestamp, description) {
   }
 
   const maxId = await db.collection("Tasks")
-    .find({modId: ObjectId(modId)}, { projection: {_id:0, modId: 0}})
+    .find({modId: ObjectId(modId)}, { projection: {_id:0, taskId: 1}})
     .sort({taskId:-1})
     .limit(1)
     .toArray();
@@ -1112,8 +1112,9 @@ async function createTask(user, group, modId, timestamp, description) {
     modId: ObjectId(modId),
     userId: ObjectId(user),
     taskId: newId,
-    description: description,
+    description,
     time: timestamp,
+    deadline,
     completed: false,
     completedBy: null,
     inProgress: null,
@@ -1160,6 +1161,7 @@ async function getTasks(user, group, modId) {
     id: result.taskId,
     owner: result.userId.toHexString(),
     timestamp: result.time,
+    deadline: result.deadline,
     description: result.description,
     completed: result.completed,
     completedBy: result.completedBy,
@@ -1168,28 +1170,9 @@ async function getTasks(user, group, modId) {
 }
 
 /*
- * Updates a task's status. Returns the new task entry.
+ * Helper function to get an updated task entry.
  */
-async function updateTask(user, group, modId, task, timestamp, completed, inProgress) {
-  checkBoolean(completed);
-  checkBoolean(inProgress);
-  await checkModuleInGroup('task', modId, group);
-
-  const muted = await getMuted(user, group);
-  if (muted) {
-    throw new RequestError("user is muted");
-  }
-
-  await db.collection("Tasks").updateOne({ modId: ObjectId(modId), taskId: task }, {
-    $set: {
-      time: timestamp,
-      completed,
-      completedBy: ObjectId(user),
-      inProgress: inProgress ? ObjectId(user) : null,
-    }
-  });
-  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
-
+async function getTaskInfo(modId, task) {
   const result = await db.collection("Tasks")
     .findOne({ modId: ObjectId(modId), taskId: task }, { projection: { _id: 0, modId: 0 } });
 
@@ -1205,10 +1188,11 @@ async function updateTask(user, group, modId, task, timestamp, completed, inProg
 }
 
 /*
- * Delete task in module. Make sure that the user ID is part of the group, that
- * the module is part of the group, throw a RequestError if the request is invalid.
+ * Updates a task's status. Returns the new task entry.
  */
-async function deleteTask(user, group, modId, task) {
+async function updateTaskStatus(user, group, modId, task, completed, inProgress) {
+  checkBoolean(completed);
+  checkBoolean(inProgress);
   await checkModuleInGroup('task', modId, group);
 
   const muted = await getMuted(user, group);
@@ -1216,6 +1200,64 @@ async function deleteTask(user, group, modId, task) {
     throw new RequestError("user is muted");
   }
 
+  await db.collection("Tasks").updateOne({ modId: ObjectId(modId), taskId: task }, {
+    $set: {
+      time: Date.now(),
+      completed,
+      completedBy: ObjectId(user),
+      inProgress: inProgress ? ObjectId(user) : null,
+    }
+  });
+  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+
+  return await getTaskInfo(modId, task);
+}
+
+/*
+ * Check if a user can edit a task.
+ */
+async function checkTaskEditPermission(user, group, modId, taskId) {
+  await checkModuleInGroup('task', modId, group);
+
+  const role = await getRole(user, group);
+  if (role !== 'user') {
+    return;
+  }
+
+  const muted = await getMuted(user, group);
+  if (muted) {
+    throw new RequestError("user is muted");
+  }
+
+  const task = await db.collection("Tasks")
+    .findOne({ modId: ObjectId(modId), taskId }, { projection: { _id: 0, userId: 1 } });
+
+  const creator = task.userId.toHexString();
+  if (user !== creator) {
+    throw new RequestError("cannot modify other users' tasks");
+  }
+}
+
+/*
+ * Updates a task's deadline as a moderator or the creator of a task. Returns the new task entry.
+ */
+async function updateTaskDeadline(user, group, modId, task, deadline) {
+  await checkTaskEditPermission(user, group, modId, task);
+
+  await db.collection("Tasks").updateOne({ modId: ObjectId(modId), taskId: task }, {
+    $set: { time: Date.now(), deadline, }
+  });
+  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+
+  return await getTaskInfo(modId, task);
+}
+
+/*
+ * Delete task in module. Make sure that the user ID is part of the group, that
+ * the module is part of the group, throw a RequestError if the request is invalid.
+ */
+async function deleteTask(user, group, modId, task) {
+  await checkTaskEditPermission(user, group, modId, task);
   await db.collection("Tasks").deleteOne({ taskId: task });
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
@@ -1405,7 +1447,8 @@ module.exports = {
   setModuleEnabled,
   createTask,
   getTasks,
-  updateTask,
+  updateTaskStatus,
+  updateTaskDeadline,
   deleteTask,
   getAuthToken,
   setAuthToken,

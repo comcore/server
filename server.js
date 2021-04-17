@@ -613,19 +613,23 @@ class StateLoggedIn {
       }
 
       case 'addTask': {
-        const { group, taskList, description } = data;
+        const { group, taskList, deadline, description } = data;
 
         if (!description) {
           throw new RequestError('task description cannot be empty');
+        } else if (deadline < 0) {
+          throw new RequestError('task deadline cannot be negative');
         }
 
         const timestamp = Date.now();
-        const id = await requests.createTask(this.user, group, taskList, timestamp, description);
+        const id = await requests.createTask(
+          this.user, group, taskList, timestamp, deadline, description);
 
         const task = {
           id,
           owner: this.user,
           timestamp,
+          deadline,
           description,
           completed: false,
           completedBy: null,
@@ -649,12 +653,31 @@ class StateLoggedIn {
         return { tasks };
       }
 
-      case 'updateTask': {
+      case 'updateTaskStatus': {
         const { group, taskList, id, completed, inProgress } = data;
 
-        const timestamp = Date.now();
-        const entry = await requests.updateTask(
-          this.user, group, taskList, id, timestamp, completed, inProgress);
+        const entry = await requests.updateTaskStatus(
+          this.user, group, taskList, id, completed, inProgress);
+
+        // Send the update as a notification as well
+        await server.forwardGroup(this.user, group, 'taskUpdated', {
+          group,
+          taskList,
+          ...entry,
+        }, this.connection);
+
+        // Return the task, but without data the client knows
+        return entry;
+      }
+
+      case 'updateTaskDeadline': {
+        const { group, taskList, id, deadline } = data;
+
+        if (deadline < 0) {
+          throw new RequestError('task deadline cannot be negative');
+        }
+
+        const entry = await requests.updateTaskDeadline(this.user, group, taskList, id, deadline);
 
         // Send the update as a notification as well
         await server.forwardGroup(this.user, group, 'taskUpdated', {
