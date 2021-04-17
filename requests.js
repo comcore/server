@@ -1180,6 +1180,7 @@ async function getTaskInfo(modId, task) {
     id: result.taskId,
     owner: result.userId.toHexString(),
     timestamp: result.time,
+    deadline: result.deadline,
     description: result.description,
     completed: result.completed,
     completedBy: result.completedBy == null ? null : result.completedBy.toHexString(),
