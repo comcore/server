@@ -651,7 +651,7 @@ async function sendInvite(user, group, targetUser, role, groupName) {
 async function getInvites(user) {
   const invites = await db.collection("Invites")
     .find({ user: ObjectId(user) })
-    .project({ group: 1, name: 1, inviter: 1 })
+    .project({ group: 1, groupName: 1, inviter: 1 })
     .toArray();
 
   return invites.map(invite => ({
