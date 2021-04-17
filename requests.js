@@ -148,8 +148,8 @@ async function setTwoFactor(user, twoFactor) {
  * the newly created group.
  */
 async function createGroup(user, name) {
-  const newGrp = {
-    name: name,
+  const result = await db.collection("Groups").insertOne({
+    name,
     grpUsers: [{
       user: ObjectId(user),
       role: "owner",
@@ -158,10 +158,7 @@ async function createGroup(user, name) {
     requireApproval: false,
     modDate: Date.now(),
     modules: [],
-  };
-
-  const result = await db.collection("Groups")
-    .insertOne(newGrp);
+  });
 
   const id = result.insertedId;
   await db.collection("Users")
@@ -217,6 +214,39 @@ async function createSubGroup(user, group, name, users) {
     .updateMany({ _id: { $in: userArray } }, { $push: { groups: id } });
 
   return id.toHexString();
+}
+
+/*
+ * Create a direct messaging group with the target user. Returns the group invite send to the target
+ * user, as if by sendInvite().
+ */
+async function createDirectMessage(user, targetUser) {
+  if (user === targetUser) {
+    throw new RequestError('user cannot direct message themselves');
+  }
+
+  // Create a group with the target's name as the group name and no owner
+  const userName = await getUserName(user);
+  const targetName = await getUserName(targetUser);
+  const result = await db.collection("Groups").insertOne({
+    name: targetName,
+    grpUsers: [{
+      user: ObjectId(user),
+      role: "moderator",
+      muted: false,
+    }],
+    requireApproval: false,
+    modDate: Date.now(),
+    modules: [],
+  });
+
+  // Add the group to the user
+  const id = result.insertedId;
+  await db.collection("Users")
+    .updateOne({ _id: ObjectId(user) }, { $push: { groups: id } });
+
+  // Invite the target user to the group
+  return await sendInvite(user, id.toHexString(), targetUser, "moderator", userName);
 }
 
 /*
@@ -383,7 +413,23 @@ function canAffect(userRole, targetRole) {
     return false;
   }
 
-  return userRole === 'moderator';
+  return userRole === 'moderator' && targetRole === 'user';
+}
+
+/*
+ * Make sure the group is not a direct message group.
+ */
+async function checkNotDirectMessage(group) {
+  const query = {
+    _id: ObjectId(group),
+    grpUsers: { $elemMatch: { role: 'owner' } },
+  };
+  const result = await db.collection("Groups")
+    .findOne(query, { projection: { _id: 0 } });
+
+  if (result === null) {
+    throw new RequestError('this group is a direct message group');
+  }
 }
 
 /*
@@ -476,6 +522,7 @@ async function getGroupName(group) {
 async function addGroupInviteCode(user, group, code, expire) {
   // Make sure the user has permission to send invites
   await checkModerator(user, group);
+  await checkNotDirectMessage(group);
 
   // Make sure the code isn't already created
   const existing = await checkInviteCode(code);
@@ -515,7 +562,8 @@ async function checkInviteCode(code) {
 /*
  * Add a user to a group if they aren't already in the group.
  */
-async function joinGroup(user, group) {
+async function joinGroup(user, group, role) {
+  checkValidRole(role);
   const userId = ObjectId(user);
   const groupId = ObjectId(group);
 
@@ -531,7 +579,7 @@ async function joinGroup(user, group) {
   }
 
   // Add the user to the group
-  const userData = { user: userId, role: 'user', muted: false };
+  const userData = { user: userId, role, muted: false };
   await db.collection("Groups")
     .updateOne({ _id: groupId }, { $push: { grpUsers: userData } });
 
@@ -545,39 +593,48 @@ async function joinGroup(user, group) {
  * 'owner' status. Throw a RequestError if the request is invalid. Returns the invitation as
  * described in getInvites(), or null if already invited to the group or already in the group.
  */
-async function sendInvite(user, group, targetUser) {
+async function sendInvite(user, group, targetUser, role, groupName) {
+  checkValidRole(role);
+
   // Make sure the user has permission to send invites
   await checkModerator(user, group);
 
-  // Get the group's name iff the targetUser isn't in the group
   const groupId = ObjectId(group);
   const targetId = ObjectId(targetUser);
-  const query = {
-    _id: groupId,
-    grpUsers: { $not: { $elemMatch: { user: targetId } } },
-  };
-  const groupResult = await db.collection("Groups")
-    .findOne(query, { projection: { _id: 0, name: 1 } });
 
-  if (!groupResult) {
-    return null;
+  // Only get the group name if it's not already known (for direct message creation)
+  if (!groupName) {
+    await checkNotDirectMessage(group);
+
+    // Get the group's name iff the targetUser isn't in the group
+    const query = {
+      _id: groupId,
+      grpUsers: { $not: { $elemMatch: { user: targetId } } },
+    };
+    const groupResult = await db.collection("Groups")
+      .findOne(query, { projection: { _id: 0, name: 1 } });
+
+    if (!groupResult) {
+      return null;
+    }
+
+    groupName = groupResult.name;
   }
 
   // Check if the user has already been invited
   const invite = await db.collection("Invites")
-    .findOne({ user: ObjectId(user), group: groupId });
+    .findOne({ user: targetId, group: groupId });
 
   if (invite) {
     return null;
   }
 
   // Get the names to store with the invitation
-  const groupName = groupResult.name;
   const inviter = await getUserName(user);
 
   // Add the invitation to the database
   await db.collection("Invites")
-    .insertOne({ user: targetId, group: groupId, groupName, inviter });
+    .insertOne({ user: targetId, group: groupId, groupName, inviter, role });
 
   return { id: group, name: groupName, inviter };
 }
@@ -594,6 +651,7 @@ async function sendInvite(user, group, targetUser) {
 async function getInvites(user) {
   const invites = await db.collection("Invites")
     .find({ user: ObjectId(user) })
+    .project({ group: 1, name: 1, inviter: 1 })
     .toArray();
 
   return invites.map(invite => ({
@@ -611,11 +669,15 @@ async function replyToInvite(user, group, accept) {
   checkBoolean(accept);
 
   // Remove the invite from the invitations list
+  const query = {
+    user: ObjectId(user),
+    group: ObjectId(group),
+  };
   const result = await db.collection("Invites")
-    .deleteOne({ user: ObjectId(user), group: ObjectId(group) });
+    .findOneAndDelete(query, { projection: { _id: 0, role: 1 } });
 
-  if (accept && result.deletedCount === 1) {
-    await joinGroup(user, group);
+  if (accept && result.value) {
+    await joinGroup(user, group, result.value.role);
   }
 }
 
@@ -977,7 +1039,7 @@ async function getRequireApproval(group) {
   const result = await db.collection("Groups")
     .findOne({ _id: ObjectId(group) }, { projection: { _id: 0, requireApproval: 1 } });
 
-  if (!result) {
+  if (result === null) {
     throw new RequestError("group does not exist");
   }
 
@@ -1316,6 +1378,7 @@ module.exports = {
   setTwoFactor,
   createGroup,
   createSubGroup,
+  createDirectMessage,
   getGroups,
   getGroupInfo,
   getUsers,

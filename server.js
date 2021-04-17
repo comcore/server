@@ -316,6 +316,21 @@ class StateLoggedIn {
         return { id };
       }
 
+      case 'createDirectMessage': {
+        const { target } = data;
+
+        // Create a direct message group and invite the user to it
+        const invite = await requests.createDirectMessage(this.user, target);
+        if (!invite) {
+          throw new RequestError('could not invite user to group');
+        }
+
+        // Also notify the target user that they received an invitation
+        server.forward(target, 'invite', invite);
+
+        return { id: invite.id };
+      }
+
       case 'getGroups': {
         const groups = await requests.getGroups(this.user);
         return { groups };
@@ -454,7 +469,7 @@ class StateLoggedIn {
         }
 
         // Send the user the invite and get the invitation
-        const invite = await requests.sendInvite(this.user, group, target.id);
+        const invite = await requests.sendInvite(this.user, group, target.id, 'user');
 
         // Also notify the target user that they received an invitation, if not already notified
         if (invite) {
