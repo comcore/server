@@ -581,7 +581,7 @@ async function joinGroup(user, group, role) {
   // Add the user to the group
   const userData = { user: userId, role, muted: false };
   await db.collection("Groups")
-    .updateOne({ _id: groupId }, { $push: { grpUsers: userData } });
+    .updateOne({ _id: groupId }, { $push: { grpUsers: userData }, $set: { modDate: Date.now() } });
 
   // Add the group to the user
   await db.collection("Users")
@@ -731,7 +731,7 @@ async function removeFromGroup(user, group) {
 
   // Remove the user from the group
   await db.collection("Groups")
-    .updateOne({ _id: groupId }, { $pull: { grpUsers: { user: userId } } });
+    .updateOne({ _id: groupId }, { $pull: { grpUsers: { user: userId } }, $set: { modDate: Date.now() } });
 
   // Remove the group from the user
   await db.collection("Users")
@@ -799,7 +799,7 @@ async function setRole(user, group, targetUser, role) {
   await permissionCheck(user, group, targetUser, 'set role of');
   await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(targetUser) }, {$set : {"grpUsers.$.role" : role, "modDate" : Date.now()} });
   if (role == 'owner') {
-    await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(user) }, {$set : {"grpUsers.$.role" : 'moderator', "modDate" : Date.now()} });
+    await db.collection("Groups").updateOne( {_id: ObjectId(group), "grpUsers.user": ObjectId(user) }, {$set : {"grpUsers.$.role" : 'moderator'} });
   }
 }
 
@@ -959,7 +959,7 @@ async function createModule(user, group, name, type) {
 
   const id = result.insertedId;
   await db.collection("Groups")
-    .updateOne({ _id: ObjectId(group) }, { $push: {modules: id} });
+    .updateOne({ _id: ObjectId(group) }, { $push: {modules: id}, $set: { modDate: Date.now() } });
 
   return id.toHexString();
 }
@@ -1054,7 +1054,7 @@ async function setRequireApproval(user, group, requireApproval) {
   await checkModerator(user, group);
 
   const result = await db.collection("Groups")
-    .updateOne({ _id: ObjectId(group) }, { $set : { requireApproval } });
+    .updateOne({ _id: ObjectId(group) }, { $set : { requireApproval, modDate: Date.now() } });
 
   if (result.matchedCount !== 1) {
     throw new RequestError('group does not exist');
