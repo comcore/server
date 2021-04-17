@@ -920,6 +920,9 @@ class Connection {
 
     // Handle state-independent messages
     switch (kind) {
+      case 'PING':
+        return data;
+
       case 'checkInviteLink': {
         const { link } = data;
 
