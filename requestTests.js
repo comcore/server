@@ -42,7 +42,7 @@ async function testSendMessage(user, group, chat, timestamp, contents) {
   await requests.closeDatabase();
 }
 
-testGetMessages("60731743411df863e479e01e", "60731751411df863e479e01f", "607317f3411df863e479e022", 0, 3);
+//testGetMessages("60731743411df863e479e01e", "60731751411df863e479e01f", "607317f3411df863e479e022", 0, 3);
 async function testGetMessages(user, group, chat, after, before) {
   await requests.initializeDatabase();
   const result = await requests.getMessages(user, group, chat, after, before);
