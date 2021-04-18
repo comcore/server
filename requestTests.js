@@ -42,7 +42,7 @@ async function testSendMessage(user, group, chat, timestamp, contents) {
   await requests.closeDatabase();
 }
 
-//testGetMessages("6048ea6f9a2bd518ec8ba0a9", "6048f0f457d365977091d97a", "604937569532dadd6ce5ad05", 0, 6);
+testGetMessages("60731743411df863e479e01e", "60731751411df863e479e01f", "607317f3411df863e479e022", 0, 3);
 async function testGetMessages(user, group, chat, after, before) {
   await requests.initializeDatabase();
   const result = await requests.getMessages(user, group, chat, after, before);
@@ -172,7 +172,7 @@ async function testDeleteEvent(user, group, modId, eventId) {
   await requests.closeDatabase();
 }
 
-testApproveEvent("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "607718f3e8371570946267b5", 3, false)
+//testApproveEvent("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "607718f3e8371570946267b5", 3, false)
 async function testApproveEvent(user, group, modId, eventId, approved) {
   await requests.initializeDatabase();
   const result = await requests.approveEvent(user, group, modId, eventId, approved);
