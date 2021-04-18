@@ -1460,6 +1460,24 @@ async function getReactions(user, group, modId, msgId) {
   return result.reactions;
 }
 
+/*
+ * remove a reaction to a message in the chat. Make sure that the user ID is part
+ * of the group, and that the chat is part of the group before updating, and
+ * throw a RequestError if the request is invalid.
+ *
+ * The message IDs and timestamp are numbers, not strings.
+ */
+async function removeReaction(user, group, modId, msgId) {
+await checkUserInGroup(user, group);
+await checkModuleInGroup('chat', modId, group);
+
+await db.collection("Messages")
+  .updateOne({ modId: ObjectId(modId), msgId: msgId }, { $pull: { 'reactions': { user: ObjectId(user) } } } );
+
+await db.collection("Modules")
+  .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+}
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1509,5 +1527,5 @@ module.exports = {
   approveEvent,
   addReaction,
   getReactions,
-  //removeReaction,
+  removeReaction,
 };

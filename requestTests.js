@@ -188,10 +188,18 @@ async function testAddReaction(user, group, modId, msgId, reaction) {
   await requests.closeDatabase();
 }
 
-testGetReactions("6064acf676011cb710928c64", "6064ad0e76011cb710928c65", "6064ad0e76011cb710928c66", 1)
+//testGetReactions("6064acf676011cb710928c64", "6064ad0e76011cb710928c65", "6064ad0e76011cb710928c66", 1)
 async function testGetReactions(user, group, modId, msgId) {
   await requests.initializeDatabase();
   const result = await requests.getReactions(user, group, modId, msgId);
   console.log(result);
+  await requests.closeDatabase();
+}
+
+//testRemoveReaction("6064acf676011cb710928c64", "6064ad0e76011cb710928c65", "6064ad0e76011cb710928c66", 1)
+async function testRemoveReaction(user, group, modId, msgId) {
+  await requests.initializeDatabase();
+  const result = await requests.removeReaction(user, group, modId, msgId);
+  //console.log(result);
   await requests.closeDatabase();
 }
