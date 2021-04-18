@@ -857,7 +857,7 @@ async function sendMessage(user, group, modId, timestamp, contents) {
     msgId: newId,
     msg: contents,
     time: timestamp,
-    reactions: null,
+    reactions: [],
   };
   await db.collection("Messages").insertOne(newObj);
   return newId;
@@ -946,6 +946,9 @@ async function editMessage(user, group, modId, msgId, timestamp, newContents) {
 
   await db.collection("Groups")
     .updateOne({_id: ObjectId(group)}, {$set : { "modDate" : Date.now()} } );
+
+  await db.collection("Modules")
+    .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
 /*
@@ -1411,6 +1414,42 @@ async function approveEvent(user, group, modId, eventId, approve) {
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
+/*
+ * add a reaction to a message in the chat. Make sure that the user ID is part
+ * of the group, and that the chat is part of the group before updating, and
+ * throw a RequestError if the request is invalid.
+ *
+ * The message IDs and timestamp are numbers, not strings.
+ */
+async function addReaction(user, group, modId, msgId, reaction) {
+await checkUserInGroup(user, group);
+await checkModuleInGroup('chat', modId, group);
+
+await db.collection("Messages")
+  .updateOne({modId: ObjectId(modId), msgId: msgId}, {$push: {reactions: {"user": ObjectId(user), "reaction": reaction}}});
+
+await db.collection("Modules")
+  .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+}
+
+// /*
+//  * add a reaction to a message in the chat. Make sure that the user ID is part
+//  * of the group, and that the chat is part of the group before updating, and
+//  * throw a RequestError if the request is invalid.
+//  *
+//  * The message IDs and timestamp are numbers, not strings.
+//  */
+// async function addReaction(user, group, modId, msgId, reaction) {
+// await checkUserInGroup(user, group);
+// await checkModuleInGroup('chat', modId, group);
+//
+// await db.collection("Messages")
+//   .updateOne({modId: ObjectId(modId), msgId: msgId}, {$push: {reactions: {"user": ObjectId(user), "reaction": reaction}}});
+//
+// await db.collection("Modules")
+//   .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+// }
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1458,7 +1497,7 @@ module.exports = {
   getEvents,
   deleteEvent,
   approveEvent,
-  //addReaction,
+  addReaction,
   //removeReaction,
   //getReactions,
 };
