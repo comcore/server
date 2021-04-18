@@ -1432,23 +1432,33 @@ await db.collection("Modules")
   .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
-// /*
-//  * add a reaction to a message in the chat. Make sure that the user ID is part
-//  * of the group, and that the chat is part of the group before updating, and
-//  * throw a RequestError if the request is invalid.
-//  *
-//  * The message IDs and timestamp are numbers, not strings.
-//  */
-// async function addReaction(user, group, modId, msgId, reaction) {
-// await checkUserInGroup(user, group);
-// await checkModuleInGroup('chat', modId, group);
-//
-// await db.collection("Messages")
-//   .updateOne({modId: ObjectId(modId), msgId: msgId}, {$push: {reactions: {"user": ObjectId(user), "reaction": reaction}}});
-//
-// await db.collection("Modules")
-//   .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
-// }
+/*
+ * get an array of reaction objects for a message in the chat.
+ * Make sure that the user ID is part of the group, and that the chat is part
+ * of the group before returning, and throw a RequestError if the request is
+ * invalid.
+ *
+ * {
+ *   user: the user ID of the reactor,
+ *   reaction: a string indicating the reaction
+ * }
+ * The message IDs and timestamp are numbers, not strings.
+ */
+
+async function getReactions(user, group, modId, msgId) {
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('chat', modId, group);
+
+  const query = {
+    modId: ObjectId(modId),
+    msgId: msgId,
+  };
+
+  const result = await db.collection("Messages")
+    .findOne(query, { projection: { _id: 0, reactions: 1 } });
+
+  return result.reactions;
+}
 
 module.exports = {
   RequestError,
@@ -1498,6 +1508,6 @@ module.exports = {
   deleteEvent,
   approveEvent,
   addReaction,
+  getReactions,
   //removeReaction,
-  //getReactions,
 };

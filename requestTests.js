@@ -180,10 +180,18 @@ async function testApproveEvent(user, group, modId, eventId, approved) {
   await requests.closeDatabase();
 }
 
-//testAddReaction("6064acf676011cb710928c64", "6064ad0e76011cb710928c65", "6064ad0e76011cb710928c66", 1, "like")
+//testAddReaction("6064acf676011cb710928c64", "6064ad0e76011cb710928c65", "6064ad0e76011cb710928c66", 1, "unlike")
 async function testAddReaction(user, group, modId, msgId, reaction) {
   await requests.initializeDatabase();
   const result = await requests.addReaction(user, group, modId, msgId, reaction);
   //console.log(result);
+  await requests.closeDatabase();
+}
+
+testGetReactions("6064acf676011cb710928c64", "6064ad0e76011cb710928c65", "6064ad0e76011cb710928c66", 1)
+async function testGetReactions(user, group, modId, msgId) {
+  await requests.initializeDatabase();
+  const result = await requests.getReactions(user, group, modId, msgId);
+  console.log(result);
   await requests.closeDatabase();
 }
