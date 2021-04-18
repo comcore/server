@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29738";
+//const url = "mongodb://localhost:29671";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -857,6 +857,7 @@ async function sendMessage(user, group, modId, timestamp, contents) {
     msgId: newId,
     msg: contents,
     time: timestamp,
+    reactions: null,
   };
   await db.collection("Messages").insertOne(newObj);
   return newId;
@@ -877,6 +878,11 @@ async function sendMessage(user, group, modId, timestamp, contents) {
  *   sender:    the user ID of the sender,
  *   timestamp: the UNIX timestamp representing when the message was sent,
  *   contents:  the contents of the message as a string,
+ *   reactions: an array of objects with each entry looking like"
+ *              {
+ *                user: the user ID of the reactor,
+ *                reaction: a string indicating the reaction
+ *              }
  * }
  */
 async function getMessages(user, group, modId, after, before) {
@@ -895,17 +901,13 @@ async function getMessages(user, group, modId, after, before) {
     .toArray();
 
   result.reverse();
-  for (var i = 0; i < result.length; i++) {
-    result[i].id = result[i]['msgId'];
-    result[i].sender = result[i]['userId'];
-    result[i].timestamp = result[i]['time'];
-    result[i].contents = result[i]['msg'];
-    delete result[i].msgId;
-    delete result[i].userId;
-    delete result[i].time;
-    delete result[i].msg;
-  }
-  return result;
+  return result.map(result => ({
+    id: result.msgId,
+    sender: result.userId,
+    timestamp: result.time,
+    contents: result.msg,
+    reactions: result.reactions,
+  }));
 }
 
 /*
@@ -1456,4 +1458,7 @@ module.exports = {
   getEvents,
   deleteEvent,
   approveEvent,
+  //addReaction,
+  //removeReaction,
+  //getReactions,
 };
