@@ -906,7 +906,10 @@ async function getMessages(user, group, modId, after, before) {
     sender: result.userId,
     timestamp: result.time,
     contents: result.msg,
-    reactions: result.reactions,
+    reactions: result.reactions.map(reaction => ({
+      user: reaction.user.toHexString(),
+      reaction: reaction.reaction,
+    })),
   }));
 }
 
@@ -1423,14 +1426,17 @@ async function approveEvent(user, group, modId, eventId, approve) {
  * The message IDs and timestamp are numbers, not strings.
  */
 async function addReaction(user, group, modId, msgId, reaction) {
-await checkUserInGroup(user, group);
-await checkModuleInGroup('chat', modId, group);
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('chat', modId, group);
 
-await db.collection("Messages")
-  .updateOne({modId: ObjectId(modId), msgId: msgId}, {$push: {reactions: {"user": ObjectId(user), "reaction": reaction}}});
+  await db.collection("Messages")
+    .updateOne({modId: ObjectId(modId), msgId: msgId}, { $addToSet: { reactions: {
+      user: ObjectId(user),
+      reaction,
+    }}});
 
-await db.collection("Modules")
-  .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+  await db.collection("Modules")
+    .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
 /*
@@ -1445,7 +1451,6 @@ await db.collection("Modules")
  * }
  * The message IDs and timestamp are numbers, not strings.
  */
-
 async function getReactions(user, group, modId, msgId) {
   await checkUserInGroup(user, group);
   await checkModuleInGroup('chat', modId, group);
@@ -1468,15 +1473,18 @@ async function getReactions(user, group, modId, msgId) {
  *
  * The message IDs and timestamp are numbers, not strings.
  */
-async function removeReaction(user, group, modId, msgId) {
-await checkUserInGroup(user, group);
-await checkModuleInGroup('chat', modId, group);
+async function removeReaction(user, group, modId, msgId, reaction) {
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('chat', modId, group);
 
-await db.collection("Messages")
-  .updateOne({ modId: ObjectId(modId), msgId: msgId }, { $pull: { 'reactions': { user: ObjectId(user) } } } );
+  await db.collection("Messages")
+    .updateOne({ modId: ObjectId(modId), msgId: msgId }, { $pull: { reactions: {
+      user: ObjectId(user),
+      reaction,
+    }}});
 
-await db.collection("Modules")
-  .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+  await db.collection("Modules")
+    .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
 module.exports = {

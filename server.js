@@ -552,6 +552,7 @@ class StateLoggedIn {
           sender: this.user,
           timestamp,
           contents,
+          reactions: [],
         };
 
         // Send the message as a notification as well
@@ -610,6 +611,40 @@ class StateLoggedIn {
 
         // Return the message, but without data the client knows
         return entry;
+      }
+
+      case 'addReaction': {
+        let { group, chat, id, reaction } = data;
+
+        await requests.addReaction(this.user, group, chat, id, reaction);
+
+        // Send the reaction as a notification as well
+        await server.forwardGroup(this.user, group, 'addReaction', {
+          group,
+          chat,
+          id,
+          user: this.user,
+          reaction,
+        }, this.connection);
+
+        return {};
+      }
+
+      case 'removeReaction': {
+        let { group, chat, id, reaction } = data;
+
+        await requests.removeReaction(this.user, group, chat, id, reaction);
+
+        // Send the reaction as a notification as well
+        await server.forwardGroup(this.user, group, 'removeReaction', {
+          group,
+          chat,
+          id,
+          user: this.user,
+          reaction,
+        }, this.connection);
+
+        return {};
       }
 
       case 'addTask': {
