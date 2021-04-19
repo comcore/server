@@ -1421,7 +1421,7 @@ async function approveEvent(user, group, modId, eventId, approve) {
 /*
  * add a reaction to a message in the chat. Make sure that the user ID is part
  * of the group, and that the chat is part of the group before updating, and
- * throw a RequestError if the request is invalid.
+ * throw a RequestError if the request is invalid. Returns whether anything changed.
  *
  * The message IDs and timestamp are numbers, not strings.
  */
@@ -1429,14 +1429,20 @@ async function addReaction(user, group, modId, msgId, reaction) {
   await checkUserInGroup(user, group);
   await checkModuleInGroup('chat', modId, group);
 
-  await db.collection("Messages")
+  const result = await db.collection("Messages")
     .updateOne({modId: ObjectId(modId), msgId: msgId}, { $addToSet: { reactions: {
       user: ObjectId(user),
       reaction,
     }}});
 
+  if (result.modifiedCount === 0) {
+    return false;
+  }
+
   await db.collection("Modules")
     .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+
+  return true;
 }
 
 /*
@@ -1469,7 +1475,7 @@ async function getReactions(user, group, modId, msgId) {
 /*
  * remove a reaction to a message in the chat. Make sure that the user ID is part
  * of the group, and that the chat is part of the group before updating, and
- * throw a RequestError if the request is invalid.
+ * throw a RequestError if the request is invalid. Returns whether anything changed.
  *
  * The message IDs and timestamp are numbers, not strings.
  */
@@ -1477,14 +1483,20 @@ async function removeReaction(user, group, modId, msgId, reaction) {
   await checkUserInGroup(user, group);
   await checkModuleInGroup('chat', modId, group);
 
-  await db.collection("Messages")
+  const result = await db.collection("Messages")
     .updateOne({ modId: ObjectId(modId), msgId: msgId }, { $pull: { reactions: {
       user: ObjectId(user),
       reaction,
     }}});
 
+  if (result.modifiedCount === 0) {
+    return false;
+  }
+
   await db.collection("Modules")
     .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+
+  return true;
 }
 
 module.exports = {
