@@ -595,11 +595,15 @@ class StateLoggedIn {
 
         const timestamp = Date.now();
         await requests.editMessage(this.user, group, chat, id, timestamp, newContents);
+
+        // Get the reactions of the message for the returned entry as well
+        const reactions = await requests.getReactions(this.user, group, chat, id);
         const entry = {
           id,
           sender: this.user,
           timestamp,
           contents: newContents,
+          reactions,
         };
 
         // Send the update as a notification as well

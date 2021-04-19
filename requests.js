@@ -1458,9 +1458,6 @@ async function addReaction(user, group, modId, msgId, reaction) {
  * The message IDs and timestamp are numbers, not strings.
  */
 async function getReactions(user, group, modId, msgId) {
-  await checkUserInGroup(user, group);
-  await checkModuleInGroup('chat', modId, group);
-
   const query = {
     modId: ObjectId(modId),
     msgId: msgId,
@@ -1469,7 +1466,10 @@ async function getReactions(user, group, modId, msgId) {
   const result = await db.collection("Messages")
     .findOne(query, { projection: { _id: 0, reactions: 1 } });
 
-  return result.reactions;
+  return result.reactions.map(reaction => ({
+    user: reaction.user.toHexString(),
+    reaction: reaction.reaction,
+  }));
 }
 
 /*
