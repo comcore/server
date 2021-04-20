@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29671";
+//const url = "mongodb://localhost:29717";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -1499,6 +1499,61 @@ async function removeReaction(user, group, modId, msgId, reaction) {
   return true;
 }
 
+/*
+ * Create a poll in a poll module in a group. Make sure that the user ID is part of the group, that
+ * the module is part of the group, throw a RequestError if the request is invalid.
+ *
+ * Polls should be assigned a sequential ID starting with 1 in each module, such that the first
+ * poll in a module has ID 1, then the second has 2, then 3, 4, and so on. The database should
+ * store enough information to satisfy the requests in getEvents(). 2 UNIX timestamps are provided
+ * in the format of number of milliseconds since January 1, 1970. The event ID and timestamps are
+ * numbers, not strings.
+ *
+ * Return the event ID of the newly added event and whether it was approved.
+ */
+async function createPoll(user, group, modId, description, optionArr) {
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('poll', modId, group);
+
+  const muted = await getMuted(user, group);
+  if (muted) {
+    throw new RequestError("user is muted");
+  }
+
+  if(optionArr === null || optionArr.length === 0) {
+    throw new RequestError("no options are given")
+  }
+
+  const maxId = await db.collection("Polls")
+    .find({modId: ObjectId(modId)}, { projection: {_id:0, pollId: 1}})
+    .sort({eventId:-1})
+    .limit(1)
+    .toArray();
+
+  let newId = 1;
+  if (maxId.length !== 0) {
+    newId = maxId[0].pollId + 1;
+  }
+
+  for(let i = 0; i < optionArr.length; i++) {
+    let optDescr = optionArr[i];
+    optionArr[i] = {optDescription: optDescr, numVotes: 0};
+  }
+
+  var newObj = {
+    modId: ObjectId(modId),
+    userId: ObjectId(user),
+    pollId: newId,
+    description: description,
+    options: optionArr,
+    enabled: true,
+  };
+
+   await db.collection("Polls").insertOne(newObj);
+   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+   return newId;
+}
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1549,4 +1604,5 @@ module.exports = {
   addReaction,
   getReactions,
   removeReaction,
+  createPoll,
 };

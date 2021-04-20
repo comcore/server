@@ -51,7 +51,7 @@ async function testGetMessages(user, group, chat, after, before) {
 }
 
 
-//testCreateModule("605e5fe9b7afe56be0102ad3","6060aa048dafb782947c6f2e","Test Calendar", "cal")
+//testCreateModule("6066001e76011cb710928da8","6066003476011cb710928daa","Test Poll", "poll")
 async function testCreateModule(user, group, name, type) {
   await requests.initializeDatabase();
   const result = await requests.createModule(user, group, name, type);
@@ -200,6 +200,14 @@ async function testGetReactions(user, group, modId, msgId) {
 async function testRemoveReaction(user, group, modId, msgId) {
   await requests.initializeDatabase();
   const result = await requests.removeReaction(user, group, modId, msgId);
+  //console.log(result);
+  await requests.closeDatabase();
+}
+
+//testCreatePoll("6066001e76011cb710928da8","6066003476011cb710928daa","607e326613eb773e5c1930b9", "Best day of the week?", ["Option A", "Option B", "Option C"])
+async function testCreatePoll(user, group, modId, description, options) {
+  await requests.initializeDatabase();
+  const result = await requests.createPoll(user, group, modId, description, options);
   //console.log(result);
   await requests.closeDatabase();
 }
