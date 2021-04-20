@@ -220,3 +220,11 @@ async function testGetPolls(user, group, modId) {
   console.log(result[0].options)
   await requests.closeDatabase();
 }
+
+//testVote("6066001e76011cb710928da8", "6066003476011cb710928daa", "607e326613eb773e5c1930b9", 1, 0)
+async function testVote(user, group, modId, pollId, option) {
+  await requests.initializeDatabase();
+  const result = await requests.vote(user, group, modId, pollId, option);
+  //console.log(result);
+  await requests.closeDatabase();
+}

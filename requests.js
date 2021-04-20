@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29690";
+//const url = "mongodb://localhost:29446";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -1596,6 +1596,49 @@ async function getPolls(user, group, modId) {
   }));
 }
 
+/*
+ * registers a vote in a poll. Make sure that the user ID is part of the group, and that
+ * the chat is part of the group before updating, and throw a RequestError if the request
+ * is invalid.
+ *
+ * The option is a number between 0 and the # of options - 1 (array index)
+ * option of -1 is to delete the User's vote
+ */
+async function vote(user, group, modId, pollId, option) {
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('poll', modId, group);
+
+  const muted = await getMuted(user, group);
+  if (muted) {
+    throw new RequestError("user is muted");
+  }
+
+  let dbOptions = await db.collection("Polls")
+    .findOne({ modId: ObjectId(modId), pollId: pollId }, { projection: {_id: 0,  options: 1} });
+  optionsArr = dbOptions.options;
+
+  if (option >= optionsArr.length) {
+    throw new RequestError("Invalid vote option");
+  }
+
+  for(let i = 0; i < optionsArr.length; i++) {
+    for(let j = 0; j < optionsArr[i].votes.length; j++) {
+      if(optionsArr[i].votes[j].toHexString() === user) {
+        optionsArr[i].votes.splice(j, 1);
+      }
+    }
+  }
+
+  if(option >= 0) {
+    optionsArr[option].votes.push(ObjectId(user));
+  }
+  await db.collection("Polls")
+    .updateOne( {modId: ObjectId(modId), pollId: pollId}, {$set : {"options" : optionsArr} } );
+
+  await db.collection("Modules")
+    .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+}
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1648,4 +1691,5 @@ module.exports = {
   removeReaction,
   createPoll,
   getPolls,
+  vote,
 };
