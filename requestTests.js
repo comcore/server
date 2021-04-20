@@ -204,10 +204,19 @@ async function testRemoveReaction(user, group, modId, msgId) {
   await requests.closeDatabase();
 }
 
-//testCreatePoll("6066001e76011cb710928da8","6066003476011cb710928daa","607e326613eb773e5c1930b9", "Best day of the week?", ["Option A", "Option B", "Option C"])
+//testCreatePoll("6066001e76011cb710928da8","6066003476011cb710928daa","607e326613eb773e5c1930b9", "Best Sandwich?", ["Option A", "Option B", "Option C"])
 async function testCreatePoll(user, group, modId, description, options) {
   await requests.initializeDatabase();
   const result = await requests.createPoll(user, group, modId, description, options);
   //console.log(result);
+  await requests.closeDatabase();
+}
+
+//testGetPolls("6066001e76011cb710928da8", "6066003476011cb710928daa", "607e326613eb773e5c1930b9")
+async function testGetPolls(user, group, modId) {
+  await requests.initializeDatabase();
+  const result = await requests.getPolls(user, group, modId);
+  console.log(result);
+  console.log(result[0].options)
   await requests.closeDatabase();
 }

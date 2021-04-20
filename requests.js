@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29717";
+//const url = "mongodb://localhost:29690";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -1505,11 +1505,10 @@ async function removeReaction(user, group, modId, msgId, reaction) {
  *
  * Polls should be assigned a sequential ID starting with 1 in each module, such that the first
  * poll in a module has ID 1, then the second has 2, then 3, 4, and so on. The database should
- * store enough information to satisfy the requests in getEvents(). 2 UNIX timestamps are provided
- * in the format of number of milliseconds since January 1, 1970. The event ID and timestamps are
- * numbers, not strings.
+ * store enough information to satisfy the requests in getPolls(). The poll ID is a
+ * number, not a string.
  *
- * Return the event ID of the newly added event and whether it was approved.
+ * Return the poll ID of the newly added poll
  */
 async function createPoll(user, group, modId, description, optionArr) {
   await checkUserInGroup(user, group);
@@ -1537,7 +1536,7 @@ async function createPoll(user, group, modId, description, optionArr) {
 
   for(let i = 0; i < optionArr.length; i++) {
     let optDescr = optionArr[i];
-    optionArr[i] = {optDescription: optDescr, numVotes: 0};
+    optionArr[i] = {optDescription: optDescr, votes: []};
   }
 
   var newObj = {
@@ -1552,6 +1551,49 @@ async function createPoll(user, group, modId, description, optionArr) {
    await db.collection("Polls").insertOne(newObj);
    await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
    return newId;
+}
+
+/*
+ * Get a set of events in the cal. Make sure that the user ID is part of the group, and that
+ * the module is part of the group before getting the list, and throw a RequestError if the request
+ * is invalid.
+ *
+ * The event IDs and timestamps are numbers, not strings.
+ *
+ * All events should be returned, with each entry in the array looking like:
+ *
+ * {
+ *   id:          the sequential ID of the poll,
+ *   owner:       the owner of the Poll
+ *   description: the description of the poll as a string,
+ *   options:     All the options and their vote totals in an array looking like:
+ *               {
+ *                 optDescription: the user ID of the reactor,
+ *                 votes: an Array of objectIds that contain the user's id
+ *               }
+ *   enabled:    a boolean that indicates whe
+ * }
+ */
+async function getPolls(user, group, modId) {
+  await checkUserInGroup(user, group);
+  await checkModuleInGroup('poll', modId, group);
+
+  const query = {
+    modId: ObjectId(modId),
+  };
+
+  const result = await db.collection("Polls")
+    .find(query, { projection: { _id: 0, modId: 0 } })
+    .sort({pollId: 1})
+    .toArray();
+
+  return result.map(result => ({
+    id: result.pollId,
+    owner: result.userId.toHexString(),
+    description: result.description,
+    options: result.options,
+    enabled: result.enabled,
+  }));
 }
 
 module.exports = {
@@ -1605,4 +1647,5 @@ module.exports = {
   getReactions,
   removeReaction,
   createPoll,
+  getPolls,
 };
