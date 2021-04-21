@@ -1527,17 +1527,17 @@ async function createPoll(user, group, modId, description, optionArr) {
     newId = maxId[0].pollId + 1;
   }
 
-  for(let i = 0; i < optionArr.length; i++) {
-    let optDescr = optionArr[i];
-    optionArr[i] = {optDescription: optDescr, votes: []};
-  }
+  const options = optionArr.map(optDescription => ({
+    optDescription,
+    votes: [],
+  }));
 
   var newObj = {
     modId: ObjectId(modId),
     userId: ObjectId(user),
     pollId: newId,
     description: description,
-    options: optionArr,
+    options,
     enabled: true,
   };
 
