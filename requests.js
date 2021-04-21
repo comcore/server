@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29446";
+//const url = "mongodb://localhost:29875";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -1429,11 +1429,25 @@ async function addReaction(user, group, modId, msgId, reaction) {
   await checkUserInGroup(user, group);
   await checkModuleInGroup('chat', modId, group);
 
+  let dbReact = await db.collection("Messages")
+    .findOne({ modId: ObjectId(modId), msgId: msgId }, { projection: {_id: 0,  reactions: 1} });
+  reactArr = dbReact.reactions;
+
+  for(let i = 0; i < reactArr.length; i++) {
+    if(reactArr[i].user.toHexString() === user) {
+      reactArr.splice(i, 1);
+    }
+  }
+
+  var newObj = {
+    user: ObjectId(user),
+    reaction: reaction,
+  };
+
+  reactArr.push(newObj);
+
   const result = await db.collection("Messages")
-    .updateOne({modId: ObjectId(modId), msgId: msgId}, { $addToSet: { reactions: {
-      user: ObjectId(user),
-      reaction,
-    }}});
+    .updateOne({modId: ObjectId(modId), msgId: msgId}, {$set : {reactions: reactArr} } );
 
   if (result.modifiedCount === 0) {
     return false;
