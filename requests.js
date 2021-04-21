@@ -6,7 +6,7 @@ var Server = require('mongodb').Server;
 const url = "mongodb://localhost:27017";
 
 // Local URL
-//const url = "mongodb://localhost:29446";
+//const url = "mongodb://localhost:29875";
 
 /*
  * Represents an unexpected error in handling a request (e.g. the request is invalid in a way that
@@ -1334,6 +1334,7 @@ async function createEvent(user, group, modId, startTime, endTime, description) 
     start: startTime,
     end: endTime,
     approved,
+    bulletin: false,
   };
 
   await db.collection("Events").insertOne(newObj);
@@ -1357,6 +1358,7 @@ async function createEvent(user, group, modId, startTime, endTime, description) 
  *   start:       the UNIX timestamp representing when the event starts,
  *   end:         the UNIX timestamp representing when the event ends,
  *   approved:    the approval status of the task,
+ *   bulletin:    the bulletin status of the task,
  * }
  */
 async function getEvents(user, group, modId) {
@@ -1379,6 +1381,7 @@ async function getEvents(user, group, modId) {
     start: result.start,
     end: result.end,
     approved: result.approved,
+    bulletin: result.bulletin,
   }));
 }
 
@@ -1429,11 +1432,25 @@ async function addReaction(user, group, modId, msgId, reaction) {
   await checkUserInGroup(user, group);
   await checkModuleInGroup('chat', modId, group);
 
+  let dbReact = await db.collection("Messages")
+    .findOne({ modId: ObjectId(modId), msgId: msgId }, { projection: {_id: 0,  reactions: 1} });
+  reactArr = dbReact.reactions;
+
+  for(let i = 0; i < reactArr.length; i++) {
+    if(reactArr[i].user.toHexString() === user) {
+      reactArr.splice(i, 1);
+    }
+  }
+
+  var newObj = {
+    user: ObjectId(user),
+    reaction: reaction,
+  };
+
+  reactArr.push(newObj);
+
   const result = await db.collection("Messages")
-    .updateOne({modId: ObjectId(modId), msgId: msgId}, { $addToSet: { reactions: {
-      user: ObjectId(user),
-      reaction,
-    }}});
+    .updateOne({modId: ObjectId(modId), msgId: msgId}, {$set : {reactions: reactArr} } );
 
   if (result.modifiedCount === 0) {
     return false;
@@ -1661,6 +1678,22 @@ async function vote(user, group, modId, pollId, option) {
     .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
+/*
+ * update the Bulletin field of an event. Make sure that the user ID is part of the group, that
+ * the module is part of the group, throw a RequestError if the request is invalid.
+ */
+async function setBulletinEvent(user, group, modId, eventId, bulletin) {
+  await checkModerator(user, group);
+  await checkModuleInGroup('cal', modId, group);
+  await checkBoolean(bulletin);
+
+  await db.collection("Events")
+    .updateOne({modId: ObjectId(modId), eventId: eventId}, {$set: {bulletin: bulletin}});
+
+  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+}
+
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1714,4 +1747,5 @@ module.exports = {
   createPoll,
   getPolls,
   vote,
+  setBulletinEvent,
 };
