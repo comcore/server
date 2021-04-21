@@ -748,6 +748,7 @@ class StateLoggedIn {
           start,
           end,
           approved,
+          bulletin: false,
         };
 
         // Send the event as a notification as well
@@ -791,6 +792,21 @@ class StateLoggedIn {
           group,
           calendar,
           id,
+        }, this.connection);
+
+        return {};
+      }
+
+      case 'setBulletin': {
+        const { group, calendar, id, bulletin } = data;
+        await requests.setBulletinEvent(this.user, group, calendar, id, bulletin);
+
+        // Send the update as a notification as well
+        await server.forwardGroup(this.user, group, 'setBulletin', {
+          group,
+          calendar,
+          id,
+          bulletin,
         }, this.connection);
 
         return {};

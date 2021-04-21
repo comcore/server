@@ -1661,12 +1661,12 @@ async function vote(user, group, modId, pollId, option) {
  * the module is part of the group, throw a RequestError if the request is invalid.
  */
 async function setBulletinEvent(user, group, modId, eventId, bulletin) {
+  checkBoolean(bulletin);
   await checkModerator(user, group);
   await checkModuleInGroup('cal', modId, group);
-  await checkBoolean(bulletin);
 
   await db.collection("Events")
-    .updateOne({modId: ObjectId(modId), eventId: eventId}, {$set: {bulletin: bulletin}});
+    .updateOne({modId: ObjectId(modId), eventId: eventId}, { $set: { bulletin } });
 
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
