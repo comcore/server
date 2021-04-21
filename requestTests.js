@@ -180,6 +180,14 @@ async function testApproveEvent(user, group, modId, eventId, approved) {
   await requests.closeDatabase();
 }
 
+//testSetBulletinEvent("605e5fe9b7afe56be0102ad3", "6060aa048dafb782947c6f2e", "607718f3e8371570946267b5", 4, true)
+async function testSetBulletinEvent(user, group, modId, eventId, bulletin) {
+  await requests.initializeDatabase();
+  const result = await requests.setBulletinEvent(user, group, modId, eventId, bulletin);
+  //console.log(result);
+  await requests.closeDatabase();
+}
+
 //testAddReaction("6064acf676011cb710928c64", "6064ad0e76011cb710928c65", "6064ad0e76011cb710928c66", 1, "unlike")
 async function testAddReaction(user, group, modId, msgId, reaction) {
   await requests.initializeDatabase();

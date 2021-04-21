@@ -1334,6 +1334,7 @@ async function createEvent(user, group, modId, startTime, endTime, description) 
     start: startTime,
     end: endTime,
     approved,
+    bulletin: false,
   };
 
   await db.collection("Events").insertOne(newObj);
@@ -1357,6 +1358,7 @@ async function createEvent(user, group, modId, startTime, endTime, description) 
  *   start:       the UNIX timestamp representing when the event starts,
  *   end:         the UNIX timestamp representing when the event ends,
  *   approved:    the approval status of the task,
+ *   bulletin:    the bulletin status of the task,
  * }
  */
 async function getEvents(user, group, modId) {
@@ -1379,6 +1381,7 @@ async function getEvents(user, group, modId) {
     start: result.start,
     end: result.end,
     approved: result.approved,
+    bulletin: result.bulletin,
   }));
 }
 
@@ -1653,6 +1656,22 @@ async function vote(user, group, modId, pollId, option) {
     .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
 
+/*
+ * update the Bulletin field of an event. Make sure that the user ID is part of the group, that
+ * the module is part of the group, throw a RequestError if the request is invalid.
+ */
+async function setBulletinEvent(user, group, modId, eventId, bulletin) {
+  await checkModerator(user, group);
+  await checkModuleInGroup('cal', modId, group);
+  await checkBoolean(bulletin);
+
+  await db.collection("Events")
+    .updateOne({modId: ObjectId(modId), eventId: eventId}, {$set: {bulletin: bulletin}});
+
+  await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
+}
+
+
 module.exports = {
   RequestError,
   initializeDatabase,
@@ -1706,4 +1725,5 @@ module.exports = {
   createPoll,
   getPolls,
   vote,
+  setBulletinEvent,
 };
