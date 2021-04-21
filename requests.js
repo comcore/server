@@ -1580,35 +1580,37 @@ async function getPolls(user, group, modId) {
     .sort({pollId: 1})
     .toArray();
 
-  let vote = null;
-  const options = [];
-  for (let i = 0; i < result.options.length; i++) {
-    const option = result.options[i];
+  return result.map(result => {
+    let vote = null;
+    const options = [];
+    for (let i = 0; i < result.options.length; i++) {
+      const option = result.options[i];
 
-    // Find the option the user voted for
-    const votes = option.votes;
-    if (vote === null) {
-      for (const userId of votes) {
-        if (userId.toHexString() === user) {
-          vote = i;
+      // Find the option the user voted for
+      const votes = option.votes;
+      if (vote === null) {
+        for (const userId of votes) {
+          if (userId.toHexString() === user) {
+            vote = i;
+          }
         }
       }
+
+      // Only give the user the number of votes, not the actual votes
+      options.push({
+        description: option.optDescription,
+        numberOfVotes: votes.length,
+      });
     }
 
-    // Only give the user the number of votes, not the actual votes
-    options.push({
-      description: option.optDescription,
-      numberOfVotes: votes.length,
-    });
-  }
-
-  return result.map(result => ({
-    id: result.pollId,
-    owner: result.userId.toHexString(),
-    description: result.description,
-    options,
-    vote,
-  }));
+    return {
+      id: result.pollId,
+      owner: result.userId.toHexString(),
+      description: result.description,
+      options,
+      vote,
+    };
+  });
 }
 
 /*
@@ -1629,8 +1631,8 @@ async function vote(user, group, modId, pollId, option) {
   }
 
   let dbOptions = await db.collection("Polls")
-    .findOne({ modId: ObjectId(modId), pollId: pollId }, { projection: {_id: 0,  options: 1} });
-  optionsArr = dbOptions.options;
+    .findOne({ modId: ObjectId(modId), pollId }, { projection: {_id: 0,  options: 1} });
+  let optionsArr = dbOptions.options;
 
   if (option >= optionsArr.length) {
     throw new RequestError("Invalid vote option");

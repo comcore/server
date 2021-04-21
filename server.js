@@ -796,6 +796,54 @@ class StateLoggedIn {
         return {};
       }
 
+      case 'addPoll': {
+        const { group, pollList, description, options } = data;
+
+        if (!description) {
+          throw new RequestError('poll description cannot be empty');
+        }
+
+        const id = await requests.createPoll(this.user, group, pollList, description, options);
+        const poll = {
+          id,
+          owner: this.user,
+          description,
+          options: options.map(description => ({
+            description,
+            numberOfVotes: 0,
+          })),
+          vote: null,
+        };
+
+        // Send the event as a notification as well
+        await server.forwardGroup(this.user, group, 'poll', {
+          group,
+          pollList,
+          ...poll,
+        }, this.connection);
+
+        // Return the event, but without data the client knows
+        return poll;
+      }
+
+      case 'getPolls': {
+        const { group, pollList } = data;
+        const polls = await requests.getPolls(this.user, group, pollList);
+        return { polls };
+      }
+
+      case 'voteOnPoll': {
+        const { group, pollList, id, option } = data;
+
+        if (option < 0) {
+          throw new RequestError('poll vote option cannot be negative');
+        }
+
+        await requests.vote(this.user, group, pollList, id, option);
+
+        return {};
+      }
+
       default:
         throw new RequestError('unknown request kind: ' + kind);
     }
