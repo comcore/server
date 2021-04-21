@@ -389,7 +389,7 @@ function checkValidRole(role) {
  * a module type which is not included.
  */
 function isModuleType(type) {
-  return ['chat', 'task', 'cal'].includes(type);
+  return ['chat', 'task', 'cal', 'poll'].includes(type);
 }
 
 /*
@@ -1520,7 +1520,7 @@ async function createPoll(user, group, modId, description, optionArr) {
   }
 
   if(optionArr === null || optionArr.length === 0) {
-    throw new RequestError("no options are given")
+    throw new RequestError("no options were given")
   }
 
   const maxId = await db.collection("Polls")
@@ -1567,11 +1567,11 @@ async function createPoll(user, group, modId, description, optionArr) {
  *   owner:       the owner of the Poll
  *   description: the description of the poll as a string,
  *   options:     All the options and their vote totals in an array looking like:
- *               {
- *                 optDescription: the user ID of the reactor,
- *                 votes: an Array of objectIds that contain the user's id
- *               }
- *   enabled:    a boolean that indicates whe
+ *                {
+ *                  description: the description of the option ,
+ *                  numberOfVotes: the number of votes for this option,
+ *                }
+ *   vote:        the user's vote or null if they haven't voted,
  * }
  */
 async function getPolls(user, group, modId) {
@@ -1583,16 +1583,38 @@ async function getPolls(user, group, modId) {
   };
 
   const result = await db.collection("Polls")
-    .find(query, { projection: { _id: 0, modId: 0 } })
+    .find(query, { projection: { _id: 0, modId: 0, enabled: 0 } })
     .sort({pollId: 1})
     .toArray();
+
+  let vote = null;
+  const options = [];
+  for (let i = 0; i < result.options.length; i++) {
+    const option = result.options[i];
+
+    // Find the option the user voted for
+    const votes = option.votes;
+    if (vote === null) {
+      for (const userId of votes) {
+        if (userId.toHexString() === user) {
+          vote = i;
+        }
+      }
+    }
+
+    // Only give the user the number of votes, not the actual votes
+    options.push({
+      description: option.optDescription,
+      numberOfVotes: votes.length,
+    });
+  }
 
   return result.map(result => ({
     id: result.pollId,
     owner: result.userId.toHexString(),
     description: result.description,
-    options: result.options,
-    enabled: result.enabled,
+    options,
+    vote,
   }));
 }
 
