@@ -1424,42 +1424,25 @@ async function approveEvent(user, group, modId, eventId, approve) {
 /*
  * add a reaction to a message in the chat. Make sure that the user ID is part
  * of the group, and that the chat is part of the group before updating, and
- * throw a RequestError if the request is invalid. Returns whether anything changed.
+ * throw a RequestError if the request is invalid.
  *
  * The message IDs and timestamp are numbers, not strings.
  */
-async function addReaction(user, group, modId, msgId, reaction) {
-  await checkUserInGroup(user, group);
-  await checkModuleInGroup('chat', modId, group);
+async function setReaction(user, group, modId, msgId, reaction) {
+  await removeReaction(user, group, modId, msgId);
 
-  let dbReact = await db.collection("Messages")
-    .findOne({ modId: ObjectId(modId), msgId: msgId }, { projection: {_id: 0,  reactions: 1} });
-  reactArr = dbReact.reactions;
-
-  for(let i = 0; i < reactArr.length; i++) {
-    if(reactArr[i].user.toHexString() === user) {
-      reactArr.splice(i, 1);
-    }
+  if (!reaction) {
+    return;
   }
 
-  var newObj = {
-    user: ObjectId(user),
-    reaction: reaction,
-  };
-
-  reactArr.push(newObj);
-
-  const result = await db.collection("Messages")
-    .updateOne({modId: ObjectId(modId), msgId: msgId}, {$set : {reactions: reactArr} } );
-
-  if (result.modifiedCount === 0) {
-    return false;
-  }
+  await db.collection("Messages")
+    .updateOne({ modId: ObjectId(modId), msgId: msgId }, { $push: { reactions: {
+      user: ObjectId(user),
+      reaction,
+    }}});
 
   await db.collection("Modules")
     .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
-
-  return true;
 }
 
 /*
@@ -1496,24 +1479,17 @@ async function getReactions(user, group, modId, msgId) {
  *
  * The message IDs and timestamp are numbers, not strings.
  */
-async function removeReaction(user, group, modId, msgId, reaction) {
+async function removeReaction(user, group, modId, msgId) {
   await checkUserInGroup(user, group);
   await checkModuleInGroup('chat', modId, group);
 
-  const result = await db.collection("Messages")
+  await db.collection("Messages")
     .updateOne({ modId: ObjectId(modId), msgId: msgId }, { $pull: { reactions: {
       user: ObjectId(user),
-      reaction,
     }}});
-
-  if (result.modifiedCount === 0) {
-    return false;
-  }
 
   await db.collection("Modules")
     .updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
-
-  return true;
 }
 
 /*
@@ -1741,7 +1717,7 @@ module.exports = {
   getEvents,
   deleteEvent,
   approveEvent,
-  addReaction,
+  setReaction,
   getReactions,
   removeReaction,
   createPoll,

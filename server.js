@@ -617,42 +617,21 @@ class StateLoggedIn {
         return entry;
       }
 
-      case 'addReaction': {
+      case 'setReaction': {
         let { group, chat, id, reaction } = data;
 
-        const modified = await requests.addReaction(this.user, group, chat, id, reaction);
+        await requests.setReaction(this.user, group, chat, id, reaction);
 
-        if (modified) {
-          // Send the reaction as a notification as well
-          await server.forwardGroup(this.user, group, 'addReaction', {
-            group,
-            chat,
-            id,
-            user: this.user,
-            reaction,
-          }, this.connection);
-        }
+        // Send the reaction as a notification as well
+        const reactions = await requests.getReactions(this.user, group, chat, id);
+        await server.forwardGroup(this.user, group, 'reaction', {
+          group,
+          chat,
+          id,
+          reactions,
+        }, this.connection);
 
-        return { modified };
-      }
-
-      case 'removeReaction': {
-        let { group, chat, id, reaction } = data;
-
-        const modified = await requests.removeReaction(this.user, group, chat, id, reaction);
-
-        if (modified) {
-          // Send the reaction as a notification as well
-          await server.forwardGroup(this.user, group, 'removeReaction', {
-            group,
-            chat,
-            id,
-            user: this.user,
-            reaction,
-          }, this.connection);
-        }
-
-        return { modified };
+        return { reactions };
       }
 
       case 'addTask': {

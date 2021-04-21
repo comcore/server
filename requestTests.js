@@ -188,10 +188,10 @@ async function testSetBulletinEvent(user, group, modId, eventId, bulletin) {
   await requests.closeDatabase();
 }
 
-//testAddReaction("6064acf676011cb710928c64", "6064ad0e76011cb710928c65", "6064ad0e76011cb710928c66", 1, "unlike")
-async function testAddReaction(user, group, modId, msgId, reaction) {
+//testSetReaction("6064acf676011cb710928c64", "6064ad0e76011cb710928c65", "6064ad0e76011cb710928c66", 1, "unlike")
+async function testSetReaction(user, group, modId, msgId, reaction) {
   await requests.initializeDatabase();
-  const result = await requests.addReaction(user, group, modId, msgId, reaction);
+  const result = await requests.setReaction(user, group, modId, msgId, reaction);
   //console.log(result);
   await requests.closeDatabase();
 }
