@@ -1518,7 +1518,7 @@ async function createPoll(user, group, modId, description, optionArr) {
 
   const maxId = await db.collection("Polls")
     .find({modId: ObjectId(modId)}, { projection: {_id:0, pollId: 1}})
-    .sort({eventId:-1})
+    .sort({pollId:-1})
     .limit(1)
     .toArray();
 
