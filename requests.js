@@ -201,7 +201,7 @@ async function createSubGroup(user, group, name, users) {
   const result = await db.collection("Groups").insertOne({
     name,
     grpUsers,
-    requireApproval,
+    requireApproval: false,
     modDate: Date.now(),
     modules: [],
   });
