@@ -783,6 +783,31 @@ class StateLoggedIn {
         return {};
       }
 
+      case 'updateEvent': {
+        const { group, calendar, id, description, start, end } = data;
+
+        if (!description) {
+          throw new RequestError('event description cannot be empty');
+        } else if (start < 1) {
+          throw new RequestError('event start timestamp cannot be less than 1');
+        } else if (end < start) {
+          throw new RequestError('event end cannot come before start');
+        }
+
+        const event = await requests.editEvent(
+          this.user, group, calendar, id, start, end, description);
+
+        // Send the event as a notification as well
+        await server.forwardGroup(this.user, group, 'eventUpdated', {
+          group,
+          calendar,
+          ...event,
+        }, this.connection);
+
+        // Return the event, but without data the client knows
+        return event;
+      }
+
       case 'deleteEvent': {
         const { group, calendar, id } = data;
         await requests.deleteEvent(this.user, group, calendar, id);

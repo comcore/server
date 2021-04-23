@@ -1386,17 +1386,77 @@ async function getEvents(user, group, modId) {
 }
 
 /*
- * Delete event in module. Make sure that the user ID is part of the group, that
- * the module is part of the group, throw a RequestError if the request is invalid.
+ * Check if a user can edit an event.
  */
-async function deleteEvent(user, group, modId, eventId) {
+async function checkEventEditPermission(user, group, modId, eventId) {
   await checkModuleInGroup('cal', modId, group);
+
+  const role = await getRole(user, group);
+  if (role !== 'user') {
+    return;
+  }
 
   const muted = await getMuted(user, group);
   if (muted) {
     throw new RequestError("user is muted");
   }
 
+  const event = await db.collection("Events")
+    .findOne({ modId: ObjectId(modId), eventId }, { projection: { _id: 0, userId: 1 } });
+
+  const creator = event.userId.toHexString();
+  if (user !== creator) {
+    throw new RequestError("cannot modify other users' events");
+  }
+}
+
+/*
+ * Edit event in module. Make sure that the user ID is part of the group, that
+ * the module is part of the group, throw a RequestError if the request is invalid.
+ */
+async function editEvent(user, group, modId, eventId, startTime, endTime, description) {
+  await checkEventEditPermission(user, group, modId, eventId);
+
+  const query = {
+    modId: ObjectId(modId),
+    eventId,
+  };
+
+  const update = {
+    description,
+    start: startTime,
+    end: endTime,
+  };
+
+  const options = {
+    projection: {
+      _id: 0,
+      userId: 1,
+      approved: 1,
+      bulletin: 1,
+    }
+  };
+
+  const result = await db.collection("Events").findOneAndUpdate(query, { $set: update }, options);
+  const { userId, approved, bulletin } = result.value;
+
+  return {
+    id: eventId,
+    owner: userId.toHexString(),
+    description,
+    start: startTime,
+    end: endTime,
+    approved,
+    bulletin,
+  }
+}
+
+/*
+ * Delete event in module. Make sure that the user ID is part of the group, that
+ * the module is part of the group, throw a RequestError if the request is invalid.
+ */
+async function deleteEvent(user, group, modId, eventId) {
+  await checkEventEditPermission(user, group, modId, eventId);
   await db.collection("Events").deleteOne({ eventId: eventId });
   await db.collection("Modules").updateOne( {_id: ObjectId(modId)}, {$set : {"modDate" : Date.now()} } );
 }
@@ -1717,6 +1777,7 @@ module.exports = {
   setAuthToken,
   createEvent,
   getEvents,
+  editEvent,
   deleteEvent,
   approveEvent,
   setReaction,
