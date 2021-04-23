@@ -450,7 +450,7 @@ class StateLoggedIn {
         }
 
         // Add the user to the corresponding group
-        await requests.joinGroup(this.user, info.group);
+        await requests.joinGroup(this.user, info.group, 'user');
 
         return { id: info.group };
       }
